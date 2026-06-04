@@ -1,0 +1,25 @@
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ConfigService } from '@nestjs/config';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  // 获取配置服务
+  const configService = app.get(ConfigService);
+  const defaultPort = 3011;
+  const prot = Number(configService.get('PORT')) || defaultPort;
+  // 配置跨域
+  app.enableCors();
+  // 全局路由前缀
+  app.setGlobalPrefix('api');
+  app.useGlobalFilters(new ApiExceptionFilter());
+  app.useGlobalInterceptors(new ApiResponseInterceptor());
+
+  // 启动失败重启net服务
+  // net stop winnat
+  // net start winnat
+  await app.listen(prot);
+}
+void bootstrap();
