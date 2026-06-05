@@ -25,6 +25,8 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   formatShortTime,
   resolutionLabels,
+  statusLabels,
+  statusToneClassNames,
   type ReferenceImage,
 } from "@/lib/image-ui"
 import { toast } from "@/lib/toast"
@@ -271,12 +273,19 @@ export function GeneratePage({
             ) : (
               <div className="grid max-w-[230px] justify-items-center gap-3 px-4 text-center">
                 <div className="flex size-11 items-center justify-center rounded-lg border border-emerald-300/25 bg-emerald-300/10 text-emerald-100">
-                  <ImagePlus className="size-5" />
+                  {lastJob?.status === "running" ||
+                  lastJob?.status === "queued" ? (
+                    <Loader2 className="size-5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="size-5" />
+                  )}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">画布待命</p>
+                  <p className="text-sm font-medium">
+                    {lastJob ? statusLabels[lastJob.status] : "画布待命"}
+                  </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    创建任务后显示结果。
+                    {lastJob?.errorMessage ?? "创建任务后显示结果。"}
                   </p>
                 </div>
               </div>
@@ -287,9 +296,21 @@ export function GeneratePage({
             <span className="truncate text-muted-foreground">
               {lastJob ? formatShortTime(lastJob.createdAt) : "未创建"}
             </span>
-            <span className="min-w-0 truncate text-right text-foreground">
-              {lastJob?.configName ?? selectedConfig?.name ?? "未选择模型"}
-            </span>
+            <div className="flex min-w-0 items-center justify-end gap-2">
+              {lastJob ? (
+                <span
+                  className={cn(
+                    "shrink-0 rounded-md border px-2 py-1 text-xs",
+                    statusToneClassNames[lastJob.status],
+                  )}
+                >
+                  {statusLabels[lastJob.status]}
+                </span>
+              ) : null}
+              <span className="min-w-0 truncate text-right text-foreground">
+                {lastJob?.configName ?? selectedConfig?.name ?? "未选择模型"}
+              </span>
+            </div>
           </div>
         </CardContent>
       </Card>

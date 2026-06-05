@@ -5,8 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { mkdir } from 'node:fs/promises';
-import { isAbsolute, join, normalize, resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 
 @Injectable()
 export class ImageStorageService implements OnModuleInit {
@@ -40,6 +40,19 @@ export class ImageStorageService implements OnModuleInit {
   toPublicUrl(relativePath: string) {
     const normalizedPath = this.normalizeRelativePath(relativePath);
     return `/api/images/${normalizedPath.replace(/\\/g, '/')}`;
+  }
+
+  /**
+   * Stores generated image bytes under IMAGE_STORAGE_PATH and returns its public URL.
+   */
+  async saveImage(relativePath: string, content: Buffer) {
+    const normalizedPath = this.normalizeRelativePath(relativePath);
+    const localPath = join(this.getRootPath(), normalizedPath);
+
+    await mkdir(dirname(localPath), { recursive: true });
+    await writeFile(localPath, content);
+
+    return this.toPublicUrl(normalizedPath);
   }
 
   private normalizeRelativePath(relativePath: string) {

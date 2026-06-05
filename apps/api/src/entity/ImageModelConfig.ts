@@ -1,4 +1,4 @@
-import type { ImageModelType } from '@ai-image-codexu/shared';
+import type { ImageProviderType } from '@ai-image-codexu/shared';
 import { Column, Entity } from 'typeorm';
 
 @Entity('image_model_config', { schema: 'ai_image_codexu' })
@@ -9,11 +9,13 @@ export class ImageModelConfigEntity {
   @Column({ type: 'varchar', length: 120, name: 'name' })
   name: string;
 
-  @Column({ type: 'varchar', length: 40, name: 'model_type' })
-  modelType: ImageModelType;
-
-  @Column({ type: 'varchar', length: 500, name: 'base_url' })
-  baseUrl: string;
+  @Column({
+    type: 'varchar',
+    length: 40,
+    name: 'provider_type',
+    default: 'openai',
+  })
+  providerType: ImageProviderType;
 
   @Column({
     type: 'varchar',

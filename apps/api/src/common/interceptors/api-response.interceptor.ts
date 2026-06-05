@@ -21,11 +21,17 @@ export class ApiResponseInterceptor<T> implements NestInterceptor<
       .getResponse<{ statusCode: number }>();
 
     return next.handle().pipe(
-      map((data) => ({
-        code: toApiResponseCode(response.statusCode),
-        message: 'success',
-        data,
-      })),
+      map((data) => {
+        if (Buffer.isBuffer(data)) {
+          return data as unknown as ApiResponse<T>;
+        }
+
+        return {
+          code: toApiResponseCode(response.statusCode),
+          message: 'success',
+          data,
+        };
+      }),
     );
   }
 }

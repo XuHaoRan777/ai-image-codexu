@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const imageModelTypes = ['gpt-image-2', 'nano-banana-2'] as const;
+export const imageProviderTypes = ['openai', 'google', 'onetopai'] as const;
 
 export const assistantProviderModes = ['openai', 'claude'] as const;
 
@@ -76,8 +76,7 @@ export const apiResponseSchema = <T extends z.ZodType>(dataSchema: T) =>
 export const imageModelConfigSchema = z.object({
   id: z.string(),
   name: z.string().min(1, '配置名称不能为空'),
-  modelType: z.enum(imageModelTypes),
-  baseUrl: z.url('请求地址格式不正确'),
+  providerType: z.enum(imageProviderTypes),
   apiKeyMasked: z.string().optional(),
   modelNameOverride: z.string().optional(),
   enabled: z.boolean(),
@@ -85,16 +84,13 @@ export const imageModelConfigSchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 
-export const createImageModelConfigSchema = imageModelConfigSchema
-  .omit({
-    id: true,
-    apiKeyMasked: true,
-    createdAt: true,
-    updatedAt: true,
-  })
-  .extend({
-    apiKey: z.string().min(1, '密钥不能为空'),
-  });
+export const createImageModelConfigSchema = z.object({
+  name: z.string().min(1, '配置名称不能为空'),
+  providerType: z.enum(imageProviderTypes),
+  apiKey: z.string().min(1, '密钥不能为空'),
+  modelNameOverride: z.string().optional(),
+  enabled: z.boolean(),
+});
 
 export const updateImageModelConfigSchema = createImageModelConfigSchema
   .partial()
@@ -145,7 +141,8 @@ export const imageJobSchema = z.object({
   id: z.string(),
   configId: z.string(),
   configName: z.string(),
-  modelType: z.enum(imageModelTypes),
+  providerType: z.enum(imageProviderTypes),
+  modelName: z.string(),
   prompt: z.string(),
   aspectRatio: z.enum(aspectRatios),
   resolution: z.enum(imageResolutions),
@@ -153,12 +150,13 @@ export const imageJobSchema = z.object({
   referenceImages: z.array(z.string()).max(6).optional(),
   status: z.enum(imageJobStatuses),
   imageUrl: z.string().optional(),
+  imageUrls: z.array(z.string()).optional(),
   errorMessage: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
 
-export type ImageModelType = (typeof imageModelTypes)[number];
+export type ImageProviderType = (typeof imageProviderTypes)[number];
 export type AssistantProviderMode = (typeof assistantProviderModes)[number];
 export type ImageJobStatus = (typeof imageJobStatuses)[number];
 export type AspectRatio = (typeof aspectRatios)[number];

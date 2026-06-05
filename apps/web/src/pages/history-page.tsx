@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   formatShortTime,
-  modelLabels,
+  providerTypeLabels,
   resolutionLabels,
   statusLabels,
   statusToneClassNames,
@@ -72,7 +72,7 @@ export function HistoryPage({
                         {job.configName}
                       </p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {modelLabels[job.modelType]}
+                        {providerTypeLabels[job.providerType]}
                       </p>
                       <div className="mt-3">
                         <StatusBadge status={job.status} />
@@ -135,8 +135,12 @@ export function HistoryPage({
                     value={selectedHistoryJob.configName}
                   />
                   <HistoryMeta
+                    label="来源"
+                    value={providerTypeLabels[selectedHistoryJob.providerType]}
+                  />
+                  <HistoryMeta
                     label="模型"
-                    value={modelLabels[selectedHistoryJob.modelType]}
+                    value={selectedHistoryJob.modelName}
                   />
                   <HistoryMeta
                     label="尺寸"

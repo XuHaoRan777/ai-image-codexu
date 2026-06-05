@@ -1,5 +1,15 @@
 # Pitfalls
 
+## 2026-06-05 生图配置不应同时维护来源类型和模型类型
+
+- 问题：真实请求已经按 `providerType` 分发到 OpenAI、Google、OneTopAI 等独立方法后，继续保留 `modelType` 会形成重复维度，让配置页和数据库字段变复杂，也容易让“来源”和“模型能力”相互冲突。
+- 处理：生图模型配置只维护 `providerType`、密钥和可选 `model_name_override`，运营商请求地址固定在后端 provider 方法内。实际请求模型名由 override 或来源类型默认值决定；任务历史只记录最终使用的 `providerType` 与 `modelName`。
+
+## 2026-06-05 生图配置页不应暴露运营商请求地址
+
+- 问题：来源类型已经决定后端 provider 方法时，仍在配置页填写 OpenAI、Google 或第三方平台 URL，会把后端 adapter 内部细节暴露给前端，也让用户误以为可以通过前端自由切换协议。
+- 处理：生图配置页不保存后端路由或运营商 URL。新增来源时同步修改 shared 来源枚举、前端来源标签和后端 provider 方法；具体 URL、path、header、请求体和响应解析都由后端方法维护。
+
 ## 2026-06-05 Toast 动画只写入场类但删除太快
 
 - 问题：Toast 只挂了 `animate-in` 类，自动消失或手动关闭时直接从数组删除节点，退出动画没有播放机会；入场动画也缺少明确时长和项目内 keyframes，视觉上像没有动效。

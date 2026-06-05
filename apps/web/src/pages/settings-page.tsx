@@ -1,11 +1,11 @@
 import type { ReactNode } from "react"
 import {
   assistantProviderModes,
-  imageModelTypes,
+  imageProviderTypes,
   type AssistantProviderMode,
   type CreateImageModelConfigInput,
   type ImageModelConfig,
-  type ImageModelType,
+  type ImageProviderType,
 } from "@ai-image-codexu/shared"
 import { Bot, EyeOff, Layers3, Pencil, Plus, Save, Trash2 } from "lucide-react"
 
@@ -37,7 +37,8 @@ import {
 import { Switch } from "@/components/ui/switch"
 import {
   assistantModeLabels,
-  modelLabels,
+  providerDefaultModelNames,
+  providerTypeLabels,
   type AssistantFormState,
 } from "@/lib/image-ui"
 import { cn } from "@/lib/utils"
@@ -99,7 +100,8 @@ export function SettingsPage({
                 const switchId = `config-enabled-${config.id}`
                 const isUpdating = updatingConfigEnabledId === config.id
                 const modelName =
-                  config.modelNameOverride || modelLabels[config.modelType]
+                  config.modelNameOverride ||
+                  providerDefaultModelNames[config.providerType]
 
                 return (
                   <div
@@ -130,6 +132,9 @@ export function SettingsPage({
                         </div>
                         <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
                           {modelName}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {providerTypeLabels[config.providerType]}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -209,7 +214,7 @@ export function SettingsPage({
                 <Input
                   id="config-name"
                   className="h-10 border-border/80 bg-background/55"
-                  placeholder="例如：OpenAI 中转"
+                  placeholder=""
                   value={imageConfigForm.name}
                   onChange={(event) =>
                     onImageConfigFormChange({
@@ -219,23 +224,23 @@ export function SettingsPage({
                   }
                 />
               </Field>
-              <Field id="model-type" label="模型类型">
+              <Field id="provider-type" label="来源类型">
                 <Select
-                  value={imageConfigForm.modelType}
+                  value={imageConfigForm.providerType}
                   onValueChange={(value) =>
                     onImageConfigFormChange({
                       ...imageConfigForm,
-                      modelType: value as ImageModelType,
+                      providerType: value as ImageProviderType,
                     })
                   }
                 >
-                  <SelectTrigger id="model-type" className="!h-10 w-full">
+                  <SelectTrigger id="provider-type" className="!h-10 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {imageModelTypes.map((value) => (
+                    {imageProviderTypes.map((value) => (
                       <SelectItem key={value} value={value}>
-                        {modelLabels[value]}
+                        {providerTypeLabels[value]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -244,16 +249,16 @@ export function SettingsPage({
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <Field id="base-url" label="请求地址">
+              <Field id="model-name-override" label="模型名称">
                 <Input
-                  id="base-url"
-                  className="h-10 border-border/80 bg-background/55 font-mono text-sm"
-                  placeholder="https://third-party.example.com/v1/images"
-                  value={imageConfigForm.baseUrl}
+                  id="model-name-override"
+                  className="h-10 border-border/80 bg-background/55"
+                  placeholder={`可选，默认 ${providerDefaultModelNames[imageConfigForm.providerType]}`}
+                  value={imageConfigForm.modelNameOverride}
                   onChange={(event) =>
                     onImageConfigFormChange({
                       ...imageConfigForm,
-                      baseUrl: event.target.value,
+                      modelNameOverride: event.target.value,
                     })
                   }
                 />
@@ -276,20 +281,6 @@ export function SettingsPage({
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <Field id="model-name-override" label="模型名 Override">
-                <Input
-                  id="model-name-override"
-                  className="h-10 border-border/80 bg-background/55"
-                  placeholder="可选，例如 gemini-3.1-flash-image"
-                  value={imageConfigForm.modelNameOverride}
-                  onChange={(event) =>
-                    onImageConfigFormChange({
-                      ...imageConfigForm,
-                      modelNameOverride: event.target.value,
-                    })
-                  }
-                />
-              </Field>
               <Field id="config-enabled" label="启用配置">
                 <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/55 px-3">
                   <span className="text-sm text-muted-foreground">

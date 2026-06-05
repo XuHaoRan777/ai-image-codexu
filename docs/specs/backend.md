@@ -42,12 +42,13 @@ apps/api/src/
 - `POST /api/prompt/optimize`
 - `POST /api/image-jobs`
 - `GET /api/image-jobs/:id`
+- `GET /api/images/*path`
 
 `POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
 
 配置页接口由 shared schema 校验，当前持久化范围：
 
-- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
+- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存来源类型、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。模型配置不再维护单独的模型类型，也不维护运营商请求地址；真实请求地址由后端 provider 方法固定，真实请求模型名由 `model_name_override` 或来源类型默认值决定。
 - `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
 - `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
 - 配置页不注入默认测试配置；`image_model_config` 空表时 `GET /api/image-model-configs` 返回空列表，配置必须来自真实创建请求或数据库记录。
@@ -71,8 +72,7 @@ apps/api/src/
 
 - `id`：varchar(64) 主键
 - `name`：配置名称
-- `model_type`：`gpt-image-2` 或 `nano-banana-2`
-- `base_url`：请求地址
+- `provider_type`：`openai`、`google` 或 `onetopai`
 - `api_key_masked`：掩码密钥，仅用于前端展示
 - `api_key_encrypted`：加密密文，供后端真实请求时解密使用
 - `model_name_override`：模型名 override，可为空
@@ -107,12 +107,17 @@ export class EntityName {
 
 ## Provider 规划
 
-接入真实第三方 API 前，先抽出 provider adapter 层：
+生图真实请求通过 provider adapter 层执行，控制器不直接依赖第三方请求结构：
 
-- 生图 provider：GPT Image 2、Google Nano Banana 2
+- 生图 provider：OpenAI 官方、Google Gemini、OneTopAI
 - 辅助模型 provider：OpenAI 模式、Claude 模式
 - 控制器不直接依赖第三方请求结构
 - 第三方 API key 只在后端使用，前端只接收掩码字段
+- `POST /api/image-jobs` 创建任务后立即返回 `queued`，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。
+- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`。
+- OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断。
+- Google 使用 Gemini 图像生成协议：基础地址写在后端 provider 方法内，后端拼接 `{modelName}:generateContent`，通过 `x-goog-api-key` 鉴权。
+- 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。
 
 ## 图片本地路径规划
 
@@ -123,6 +128,7 @@ export class EntityName {
 - `IMAGE_STORAGE_PATH` 是必填配置，缺失时服务启动失败
 - 业务代码不得硬编码图片根路径
 - 图片相对路径必须防止目录穿越
+- `GET /api/images/*path` 从 `IMAGE_STORAGE_PATH` 读取本地图片并按图片 MIME 类型返回二进制内容，不走统一 JSON 包装。
 
 ## 验证命令
 

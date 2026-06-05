@@ -1,7 +1,7 @@
 import type {
   AssistantProviderMode,
   ImageJobStatus,
-  ImageModelType,
+  ImageProviderType,
   ImageResolution,
 } from "@ai-image-codexu/shared"
 
@@ -13,14 +13,21 @@ export type AssistantFormState = {
   enabled: boolean
 }
 
-export const modelLabels: Record<ImageModelType, string> = {
-  "gpt-image-2": "GPT Image 2",
-  "nano-banana-2": "Google Nano Banana 2",
-}
-
 export const assistantModeLabels: Record<AssistantProviderMode, string> = {
   openai: "OpenAI 模式",
   claude: "Claude 模式",
+}
+
+export const providerTypeLabels: Record<ImageProviderType, string> = {
+  openai: "OpenAI 官方",
+  google: "Google Gemini",
+  onetopai: "OneTopAI",
+}
+
+export const providerDefaultModelNames: Record<ImageProviderType, string> = {
+  openai: "gpt-image-2",
+  google: "gemini-3.1-flash-image",
+  onetopai: "gpt-image-2",
 }
 
 export type ReferenceImage = {

@@ -23,7 +23,10 @@ import { Button } from "@/components/ui/button"
 import { GlobalToast } from "@/components/global-toast"
 import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
-import { type AssistantFormState, type ReferenceImage } from "@/lib/image-ui"
+import {
+  type AssistantFormState,
+  type ReferenceImage,
+} from "@/lib/image-ui"
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { GeneratePage } from "@/pages/generate-page"
@@ -54,8 +57,7 @@ function readViewFromHash(): View {
 
 const initialImageConfigForm: CreateImageModelConfigInput = {
   name: "",
-  modelType: "gpt-image-2",
-  baseUrl: "",
+  providerType: "onetopai",
   apiKey: "",
   modelNameOverride: "",
   enabled: true,
@@ -144,14 +146,14 @@ function App() {
 
   function startCreateConfig() {
     resetImageConfigForm()
+    setEditingConfigId(null)
     setConfigFormVisible(true)
   }
 
   function startEditConfig(config: ImageModelConfig) {
     setImageConfigForm({
       name: config.name,
-      modelType: config.modelType,
-      baseUrl: config.baseUrl,
+      providerType: config.providerType,
       apiKey: "",
       modelNameOverride: config.modelNameOverride ?? "",
       enabled: config.enabled,
@@ -232,7 +234,6 @@ function App() {
       if (editingConfigId) {
         const input: UpdateImageModelConfigInput = {
           ...imageConfigForm,
-          apiKey: imageConfigForm.apiKey.trim() || undefined,
         }
         const updated = await api.updateImageModelConfig(editingConfigId, input)
 
@@ -368,21 +369,36 @@ function App() {
       setLastJob(job)
       rememberJob(job)
       toast.success("生图任务已创建")
-      setTimeout(() => {
-        void api
-          .getImageJob(job.id)
-          .then((updated) => {
-            setLastJob(updated)
-            rememberJob(updated)
-          })
-          .catch(() => undefined)
-      }, 1500)
+      pollImageJob(job.id)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "创建生图任务失败")
     } finally {
       setCreatingJob(false)
       setLoading(false)
     }
+  }
+
+  function pollImageJob(id: string, attempt = 0) {
+    const maxAttempts = 80
+
+    window.setTimeout(() => {
+      void api
+        .getImageJob(id)
+        .then((updated) => {
+          setLastJob(updated)
+          rememberJob(updated)
+
+          if (
+            updated.status === "queued" ||
+            updated.status === "running"
+          ) {
+            if (attempt < maxAttempts) {
+              pollImageJob(id, attempt + 1)
+            }
+          }
+        })
+        .catch(() => undefined)
+    }, 1500)
   }
 
   const assistantEnabled = Boolean(assistantConfig?.enabled)

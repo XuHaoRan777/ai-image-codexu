@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageProcessingModule } from '../image-processing/image-processing.module';
 import { ImageGenerationController } from './image-generation.controller';
+import { ImageProviderDispatcher } from './image-generation.providers';
 import { ImageGenerationService } from './image-generation.service';
 
 @Module({
@@ -11,7 +12,7 @@ import { ImageGenerationService } from './image-generation.service';
     ImageProcessingModule,
   ],
   controllers: [ImageGenerationController],
-  providers: [ImageGenerationService],
+  providers: [ImageGenerationService, ImageProviderDispatcher],
   exports: [ImageGenerationService],
 })
 export class ImageGenerationModule {}
