@@ -2,6 +2,7 @@ export type ToastVariant = "success" | "warning" | "error" | "info"
 
 export type ToastItem = {
   id: number
+  leaving?: boolean
   message: string
   variant: ToastVariant
 }
@@ -13,6 +14,8 @@ type ToastOptions = {
 let nextToastId = 0
 let currentToasts: ToastItem[] = []
 const listeners = new Set<(items: ToastItem[]) => void>()
+const exitDuration = 280
+const toastTimers = new Map<number, number>()
 
 function publishToasts() {
   const items = [...currentToasts]
@@ -30,6 +33,40 @@ export function subscribeToasts(listener: (items: ToastItem[]) => void) {
 }
 
 export function dismissToast(id: number) {
+  const toastItem = currentToasts.find((item) => item.id === id)
+
+  if (!toastItem) {
+    return
+  }
+
+  if (toastItem.leaving) {
+    return
+  }
+
+  const existingTimer = toastTimers.get(id)
+
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer)
+    toastTimers.delete(id)
+  }
+
+  currentToasts = currentToasts.map((item) =>
+    item.id === id ? { ...item, leaving: true } : item,
+  )
+  publishToasts()
+
+  const removeTimer = window.setTimeout(() => removeToast(id), exitDuration)
+  toastTimers.set(id, removeTimer)
+}
+
+function removeToast(id: number) {
+  const existingTimer = toastTimers.get(id)
+
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer)
+    toastTimers.delete(id)
+  }
+
   currentToasts = currentToasts.filter((item) => item.id !== id)
   publishToasts()
 }
@@ -43,11 +80,22 @@ function showToast(
 
   const id = nextToastId
 
-  currentToasts = [...currentToasts, { id, message, variant }].slice(-4)
+  currentToasts = [...currentToasts, { id, message, variant }]
+
+  while (currentToasts.filter((item) => !item.leaving).length > 4) {
+    const oldestVisibleToast = currentToasts.find((item) => !item.leaving)
+
+    if (!oldestVisibleToast) {
+      break
+    }
+
+    removeToast(oldestVisibleToast.id)
+  }
+
   publishToasts()
 
   if (duration > 0) {
-    window.setTimeout(() => dismissToast(id), duration)
+    toastTimers.set(id, window.setTimeout(() => dismissToast(id), duration))
   }
 
   return id

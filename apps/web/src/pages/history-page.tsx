@@ -33,7 +33,7 @@ export function HistoryPage({
 }) {
   return (
     <>
-      <Card className="surface-panel rounded-lg lg:min-h-0 lg:flex-1">
+      <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 lg:flex-1">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <History className="size-5 text-cyan-200" />
@@ -42,13 +42,13 @@ export function HistoryPage({
         </CardHeader>
         <CardContent className="pt-1 lg:min-h-0 lg:overflow-auto">
           {historyJobs.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="motion-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {historyJobs.map((job) => (
                 <button
                   key={job.id}
                   type="button"
                   className={cn(
-                    "group/history rounded-lg border border-border/70 bg-background/45 p-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-300/35 hover:bg-emerald-300/10 focus-visible:ring-3 focus-visible:ring-ring/50",
+                    "motion-hover-lift group/history rounded-lg border border-border/70 bg-background/45 p-2 text-left hover:border-emerald-300/35 hover:bg-emerald-300/10 focus-visible:ring-3 focus-visible:ring-ring/50",
                     selectedHistoryJobId === job.id &&
                       "border-emerald-300/45 bg-emerald-300/15",
                   )}
@@ -107,7 +107,7 @@ export function HistoryPage({
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="flex max-h-[52dvh] min-h-[280px] items-center justify-center overflow-hidden rounded-lg border border-border/75 bg-black/30">
+              <div className="motion-pop flex max-h-[52dvh] min-h-[280px] items-center justify-center overflow-hidden rounded-lg border border-border/75 bg-black/30">
                 {selectedHistoryJob.imageUrl ? (
                   <img
                     src={selectedHistoryJob.imageUrl}
@@ -122,7 +122,7 @@ export function HistoryPage({
                   </div>
                 )}
               </div>
-              <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
+              <div className="motion-pop grid gap-3 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
                 <div className="grid gap-1">
                   <span className="text-xs text-muted-foreground">提示词</span>
                   <p className="max-h-36 overflow-auto whitespace-pre-wrap leading-6">

@@ -78,8 +78,8 @@ export function SettingsPage({
   onToggleConfigEnabled: (id: string, enabled: boolean) => void
 }) {
   return (
-    <div className="grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
-      <Card className="surface-panel rounded-lg lg:min-h-0">
+    <div className="motion-stagger grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+      <Card className="motion-panel surface-panel rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Layers3 className="size-5 text-cyan-200" />
@@ -94,7 +94,7 @@ export function SettingsPage({
         </CardHeader>
         <CardContent className="pt-1 lg:min-h-0 lg:overflow-auto">
           {imageConfigs.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="motion-stagger grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               {imageConfigs.map((config) => {
                 const switchId = `config-enabled-${config.id}`
                 const isUpdating = updatingConfigEnabledId === config.id
@@ -106,6 +106,7 @@ export function SettingsPage({
                     key={config.id}
                     className={cn(
                       "group rounded-lg border p-3 transition-colors",
+                      "motion-hover-lift",
                       config.enabled
                         ? "border-emerald-300/25 bg-emerald-300/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                         : "border-border/65 bg-background/35",
@@ -202,7 +203,7 @@ export function SettingsPage({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3">
+          <div className="motion-stagger grid gap-3">
             <div className="grid gap-3 md:grid-cols-2">
               <Field id="config-name" label="配置名称">
                 <Input
@@ -329,14 +330,14 @@ export function SettingsPage({
         </DialogContent>
       </Dialog>
 
-      <Card className="surface-panel rounded-lg lg:min-h-0 xl:self-start">
+      <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 xl:self-start">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Bot className="size-5 text-amber-200" />
             辅助模型
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 pt-1">
+        <CardContent className="motion-stagger grid gap-3 pt-1">
           <Field id="assistant-mode" label="模式">
             <Select
               value={assistantForm.mode}

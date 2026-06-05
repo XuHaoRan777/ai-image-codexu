@@ -85,7 +85,8 @@ function ToastCard({
       role={urgent ? "alert" : "status"}
       aria-live={urgent ? "assertive" : "polite"}
       className={cn(
-        "pointer-events-auto flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm shadow-[0_18px_55px_rgba(0,0,0,0.28)] backdrop-blur-xl animate-in fade-in slide-in-from-top-2",
+        "toast-card pointer-events-auto flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm shadow-[0_18px_55px_rgba(0,0,0,0.28)] backdrop-blur-xl",
+        item.leaving ? "toast-card-exit" : "toast-card-enter",
         toastClassNames[item.variant],
       )}
     >

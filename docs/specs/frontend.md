@@ -20,6 +20,7 @@
 - 表单输入、选择器、预览画布和配置列表保持 8px 圆角以内，符合 shadcn 控件基础风格
 - 图标统一使用 `lucide-react`，不使用 emoji 作为结构化图标
 - 交互控件保留可见 focus ring、loading disabled 状态和至少 40px 以上的点击高度
+- 全局动效使用短时长工具型过渡：页面切换淡入轻微位移，面板和列表项渐进入场，按钮/卡片 hover 轻微上移；必须尊重 `prefers-reduced-motion`
 - 桌面端页面固定在一屏内，不使用页面级右侧滚动条；需要滚动时限制在组件内部
 
 ### 配置页
@@ -81,7 +82,8 @@
 - `App.tsx` 只保留全局状态、API handler、侧边栏和页面切换容器
 - `App.tsx` 负责解析 hash 路由并同步导航状态；页面切换不得只依赖内存中的 React state
 - 全局提示工具位于 `apps/web/src/lib/toast.ts`，渲染组件为 `apps/web/src/components/global-toast.tsx`
-- Toast 支持 `success` 绿色、`warning` 黄色、`error` 红色、`info` 灰色四种状态，统一从页面顶部弹出
+- Toast 支持 `success` 绿色、`warning` 黄色、`error` 红色、`info` 灰色四种状态，统一从页面顶部弹出；显示和关闭都必须有显式 enter/exit 动画状态，关闭时先播放退出动画再移除节点
+- 全局动效工具类集中维护在 `apps/web/src/index.css`，页面和组件只挂载 `motion-*` class，不在业务代码中分散定义动画
 - shared 类型从 `@ai-image-codexu/shared` 引入
 - 不在前端保存或展示原始 API key
 

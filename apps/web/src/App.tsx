@@ -392,8 +392,8 @@ function App() {
       <GlobalToast />
       <main className="min-h-dvh overflow-x-hidden bg-background text-foreground lg:h-dvh lg:overflow-hidden">
       <div className="app-shell grid min-h-dvh grid-cols-1 lg:h-dvh lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="z-10 border-b border-sidebar-border/70 bg-sidebar/88 px-4 py-4 backdrop-blur-xl lg:h-dvh lg:border-r lg:border-b-0 lg:px-5 lg:py-6">
-          <div className="flex items-center gap-3">
+        <aside className="motion-panel z-10 border-b border-sidebar-border/70 bg-sidebar/88 px-4 py-4 backdrop-blur-xl lg:h-dvh lg:border-r lg:border-b-0 lg:px-5 lg:py-6">
+          <div className="motion-pop flex items-center gap-3">
             <div className="brand-mark">
               <Brush className="size-5" />
             </div>
@@ -404,7 +404,7 @@ function App() {
             </div>
           </div>
 
-          <nav className="mt-6 grid gap-2" aria-label="主导航">
+          <nav className="motion-stagger mt-6 grid gap-2" aria-label="主导航">
             <NavButton
               active={view === "generate"}
               href={viewHashes.generate}
@@ -438,7 +438,7 @@ function App() {
 
           <Separator className="my-6 bg-sidebar-border/70" />
 
-          <div className="grid gap-3 text-sm">
+          <div className="motion-stagger grid gap-3 text-sm">
             <SideMetric
               icon={Layers3}
               label="模型配置"
@@ -456,7 +456,10 @@ function App() {
         </aside>
 
         <section className="z-10 min-w-0 p-3 sm:p-4 lg:h-dvh lg:overflow-hidden">
-          <div className="flex w-full max-w-none flex-col gap-3 lg:h-full lg:min-h-0">
+          <div
+            key={view}
+            className="motion-page flex w-full max-w-none flex-col gap-3 lg:h-full lg:min-h-0"
+          >
             {view === "generate" ? (
               <GeneratePage
                 aspectRatio={aspectRatio}
@@ -543,6 +546,7 @@ function NavButton({
       variant={active ? "secondary" : "ghost"}
       className={cn(
         "h-11 justify-start rounded-lg px-3 text-sm",
+        "motion-hover-lift",
         active &&
           tone === "green" &&
           "border border-emerald-300/20 bg-emerald-300/10 text-emerald-50 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.08)]",
@@ -583,7 +587,7 @@ function SideMetric({
   value: string
 }) {
   return (
-    <div className="rounded-lg border border-sidebar-border/70 bg-background/35 p-3">
+    <div className="motion-hover-lift rounded-lg border border-sidebar-border/70 bg-background/35 p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Icon

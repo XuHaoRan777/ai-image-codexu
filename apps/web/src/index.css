@@ -38,6 +38,11 @@
   --sidebar-accent-foreground: oklch(0.94 0.01 95);
   --sidebar-border: oklch(0.42 0.035 245 / 0.58);
   --sidebar-ring: oklch(0.76 0.16 160);
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-slow: 360ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-productive: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -179,6 +184,65 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  .motion-page {
+    animation: page-enter var(--motion-slow) var(--motion-ease-productive) both;
+  }
+
+  .motion-panel {
+    animation: panel-enter var(--motion-slow) var(--motion-ease-productive) both;
+  }
+
+  .motion-stagger > * {
+    animation: item-enter var(--motion-slow) var(--motion-ease-productive) both;
+    animation-delay: calc(var(--motion-index, 0) * 42ms);
+  }
+
+  .motion-stagger > :nth-child(1) {
+    --motion-index: 0;
+  }
+
+  .motion-stagger > :nth-child(2) {
+    --motion-index: 1;
+  }
+
+  .motion-stagger > :nth-child(3) {
+    --motion-index: 2;
+  }
+
+  .motion-stagger > :nth-child(4) {
+    --motion-index: 3;
+  }
+
+  .motion-stagger > :nth-child(5) {
+    --motion-index: 4;
+  }
+
+  .motion-stagger > :nth-child(6) {
+    --motion-index: 5;
+  }
+
+  .motion-stagger > :nth-child(n + 7) {
+    --motion-index: 6;
+  }
+
+  .motion-pop {
+    animation: pop-enter var(--motion-base) var(--motion-ease-productive) both;
+  }
+
+  .motion-hover-lift {
+    transition-duration: var(--motion-base);
+    transition-property: transform, border-color, background-color, box-shadow, opacity;
+    transition-timing-function: var(--motion-ease);
+  }
+
+  .motion-hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  .motion-hover-lift:active {
+    transform: translateY(0);
+  }
 }
 
 @layer components {
@@ -242,6 +306,10 @@
       0 22px 70px oklch(0 0 0 / 0.28),
       inset 0 1px 0 oklch(1 0 0 / 0.07);
     backdrop-filter: blur(18px);
+    transition:
+      border-color var(--motion-base) var(--motion-ease),
+      box-shadow var(--motion-base) var(--motion-ease),
+      background-color var(--motion-base) var(--motion-ease);
   }
 
   .preview-frame {
@@ -265,6 +333,97 @@
     background-size: 24px 24px;
     mask-image: linear-gradient(180deg, black, transparent 82%);
   }
+
+  .toast-card {
+    transform-origin: top center;
+    will-change: transform, opacity, filter;
+  }
+
+  .toast-card-enter {
+    animation: toast-enter var(--motion-slow) var(--motion-ease-productive) both;
+  }
+
+  .toast-card-exit {
+    pointer-events: none;
+    animation: toast-exit 280ms var(--motion-ease) both;
+  }
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes toast-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.94);
+    filter: blur(4px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.01);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes toast-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+    filter: blur(3px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -275,5 +434,10 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+
+  .motion-hover-lift:hover,
+  .motion-hover-lift:active {
+    transform: none;
   }
 }

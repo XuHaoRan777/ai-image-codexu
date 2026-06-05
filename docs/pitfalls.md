@@ -1,5 +1,10 @@
 # Pitfalls
 
+## 2026-06-05 Toast 动画只写入场类但删除太快
+
+- 问题：Toast 只挂了 `animate-in` 类，自动消失或手动关闭时直接从数组删除节点，退出动画没有播放机会；入场动画也缺少明确时长和项目内 keyframes，视觉上像没有动效。
+- 处理：Toast 必须使用显式生命周期状态。关闭时先标记 `leaving` 播放 `toast-exit`，延迟后再移除；入场/退出 keyframes 集中维护在 `index.css`，并尊重 `prefers-reduced-motion`。
+
 ## 2026-06-05 前端页面状态只放在内存
 
 - 问题：主页面使用 `useState("generate")` 保存当前视图，刷新历史页或配置页时 React 状态重建，页面会回到生图页。

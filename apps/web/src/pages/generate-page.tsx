@@ -78,15 +78,15 @@ export function GeneratePage({
   onUseOptimizedPrompt: () => void
 }) {
   return (
-    <div className="grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(360px,4fr)_minmax(0,6fr)]">
-      <Card className="surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
+    <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(360px,4fr)_minmax(0,6fr)]">
+      <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <ImagePlus className="size-5 text-emerald-200" />
             创作
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 pt-1 lg:min-h-0 lg:overflow-y-auto lg:overflow-x-hidden">
+        <CardContent className="motion-stagger grid gap-4 pt-1 lg:min-h-0 lg:overflow-y-auto lg:overflow-x-hidden">
           <ReferenceImagesField
             referenceImages={referenceImages}
             onReferenceImagesChange={onReferenceImagesChange}
@@ -210,7 +210,7 @@ export function GeneratePage({
             </div>
           ) : null}
 
-          <div className="grid gap-3 rounded-lg border border-border/70 bg-background/45 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="motion-pop grid gap-3 rounded-lg border border-border/70 bg-background/45 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <Select
               value={selectedConfigId}
               onValueChange={onSelectedConfigChange}
@@ -247,7 +247,7 @@ export function GeneratePage({
         </CardContent>
       </Card>
 
-      <Card className="surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
+      <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <ImagePlus className="size-5 text-amber-200" />
@@ -257,7 +257,7 @@ export function GeneratePage({
         <CardContent className="grid gap-3 pt-1 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)_auto]">
           <div
             className={cn(
-              "preview-frame mx-auto flex w-full items-center justify-center overflow-hidden rounded-lg border border-border/75",
+              "preview-frame motion-pop mx-auto flex w-full items-center justify-center overflow-hidden rounded-lg border border-border/75 transition-[max-width] duration-300 ease-out",
               getPreviewFrameClass(aspectRatio),
             )}
           >
@@ -355,7 +355,7 @@ function ReferenceImagesField({
           {referenceImages.map((image) => (
             <div
               key={image.id}
-              className="group/reference relative aspect-square overflow-hidden rounded-lg border border-border/70 bg-background/45"
+              className="motion-hover-lift group/reference relative aspect-square overflow-hidden rounded-lg border border-border/70 bg-background/45"
             >
               <img
                 src={image.dataUrl}
@@ -375,7 +375,7 @@ function ReferenceImagesField({
           {referenceImages.length < maxReferenceImages ? (
             <label
               htmlFor="reference-images"
-              className="flex aspect-square cursor-pointer items-center justify-center rounded-lg border border-dashed border-border/70 bg-background/35 text-muted-foreground transition-colors hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100 focus-within:ring-3 focus-within:ring-ring/50"
+              className="motion-hover-lift flex aspect-square cursor-pointer items-center justify-center rounded-lg border border-dashed border-border/70 bg-background/35 text-muted-foreground hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100 focus-within:ring-3 focus-within:ring-ring/50"
             >
               <Upload className="size-5" />
               <span className="sr-only">上传参考图</span>
