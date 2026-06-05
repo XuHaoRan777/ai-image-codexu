@@ -69,6 +69,9 @@ describe('PromptOptimizerService', () => {
   });
 });
 
+/**
+ * 创建用于单元测试的内存版辅助模型配置仓储。
+ */
 function createAssistantConfigRepository() {
   let item: AssistantModelConfigEntity | null = null;
 

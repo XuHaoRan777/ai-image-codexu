@@ -5,9 +5,15 @@ import { ImageStorageService } from './image-storage.service';
 
 @Controller('images')
 export class ImageProcessingController {
+  /**
+   * 注入图片存储服务。
+   */
   constructor(private readonly imageStorageService: ImageStorageService) {}
 
   @Get('*path')
+  /**
+   * 读取本地图片文件并按 MIME 类型返回二进制内容。
+   */
   async readImage(@Param('path') path: string[], @Res() response: Response) {
     const relativePath = path.join('/');
     const localPath = this.imageStorageService.resolveLocalPath(relativePath);
@@ -18,6 +24,9 @@ export class ImageProcessingController {
   }
 }
 
+/**
+ * 根据图片路径后缀推断响应 MIME 类型。
+ */
 function resolveImageMimeType(path: string) {
   const lowerPath = path.toLowerCase();
 

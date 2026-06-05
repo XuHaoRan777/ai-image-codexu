@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-export const imageProviderTypes = ['openai', 'google', 'onetopai'] as const;
+export const imageProviderTypes = [
+  'openai',
+  'google',
+  'onetopai',
+  'image-youyu',
+] as const;
 
 export const assistantProviderModes = ['openai', 'claude'] as const;
 
@@ -12,7 +17,14 @@ export const imageJobStatuses = [
   'canceled',
 ] as const;
 
-export const aspectRatios = ['1:1', '4:3', '3:4', '16:9', '9:16'] as const;
+export const aspectRatios = [
+  'auto',
+  '1:1',
+  '4:3',
+  '3:4',
+  '16:9',
+  '9:16',
+] as const;
 
 export const imageResolutions = ['0.5k', '1k', '2k', '4k'] as const;
 

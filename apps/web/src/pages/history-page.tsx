@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  aspectRatioLabels,
   formatShortTime,
   providerTypeLabels,
   resolutionLabels,
@@ -144,7 +145,7 @@ export function HistoryPage({
                   />
                   <HistoryMeta
                     label="尺寸"
-                    value={selectedHistoryJob.aspectRatio}
+                    value={aspectRatioLabels[selectedHistoryJob.aspectRatio]}
                   />
                   <HistoryMeta
                     label="分辨率"

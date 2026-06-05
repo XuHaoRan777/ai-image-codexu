@@ -24,6 +24,9 @@ type ZodErrorLike = {
 
 @Catch()
 export class ApiExceptionFilter {
+  /**
+   * 将所有异常统一转换为项目 API 响应结构。
+   */
   catch(exception: unknown, host: ArgumentsHost) {
     const response = host.switchToHttp().getResponse<Response>();
     const { code, message } = this.resolveError(exception);
@@ -36,6 +39,9 @@ export class ApiExceptionFilter {
     response.status(code).json(payload);
   }
 
+  /**
+   * 根据异常类型解析响应状态码和错误消息。
+   */
   private resolveError(exception: unknown) {
     if (this.isZodErrorLike(exception)) {
       return {
@@ -58,6 +64,9 @@ export class ApiExceptionFilter {
     };
   }
 
+  /**
+   * 从 Nest HTTP 异常响应中提取可展示的错误消息。
+   */
   private resolveHttpExceptionMessage(response: HttpExceptionResponse) {
     if (typeof response === 'string') {
       return response;
@@ -70,6 +79,9 @@ export class ApiExceptionFilter {
     return response.message ?? response.error ?? 'Request failed';
   }
 
+  /**
+   * 判断未知异常是否符合 ZodError 的最小结构。
+   */
   private isZodErrorLike(exception: unknown): exception is ZodErrorLike {
     if (typeof exception !== 'object' || exception === null) {
       return false;

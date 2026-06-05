@@ -59,6 +59,9 @@ export function decryptSecret(payload?: string | null) {
   ]).toString('utf8');
 }
 
+/**
+ * 从环境变量派生 AES-256-GCM 加密密钥。
+ */
 function getEncryptionKey() {
   const secret =
     process.env.API_KEY_ENCRYPTION_SECRET?.trim() ||

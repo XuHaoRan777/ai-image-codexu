@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  aspectRatioLabels,
   formatShortTime,
   resolutionLabels,
   statusLabels,
@@ -112,7 +113,7 @@ export function GeneratePage({
                 <SelectContent>
                   {aspectRatios.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {value}
+                      {aspectRatioLabels[value]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -456,6 +457,8 @@ function FieldLabel({
 
 function getPreviewFrameClass(aspectRatio: AspectRatio) {
   switch (aspectRatio) {
+    case "auto":
+      return "aspect-square max-w-[640px]"
     case "4:3":
       return "aspect-[4/3] max-w-[760px]"
     case "3:4":

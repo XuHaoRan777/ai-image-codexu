@@ -44,7 +44,7 @@ apps/api/src/
 - `GET /api/image-jobs/:id`
 - `GET /api/images/*path`
 
-`POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
+`POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `aspectRatio` 支持 `auto`、`1:1`、`4:3`、`3:4`、`16:9`、`9:16`，`resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
 
 配置页接口由 shared schema 校验，当前持久化范围：
 
@@ -72,7 +72,7 @@ apps/api/src/
 
 - `id`：varchar(64) 主键
 - `name`：配置名称
-- `provider_type`：`openai`、`google` 或 `onetopai`
+- `provider_type`：`openai`、`google`、`onetopai` 或 `image-youyu`
 - `api_key_masked`：掩码密钥，仅用于前端展示
 - `api_key_encrypted`：加密密文，供后端真实请求时解密使用
 - `model_name_override`：模型名 override，可为空
@@ -109,14 +109,16 @@ export class EntityName {
 
 生图真实请求通过 provider adapter 层执行，控制器不直接依赖第三方请求结构：
 
-- 生图 provider：OpenAI 官方、Google Gemini、OneTopAI
+- 生图 provider：OpenAI 官方、Google Gemini、OneTopAI、image-youyu
 - 辅助模型 provider：OpenAI 模式、Claude 模式
 - 控制器不直接依赖第三方请求结构
 - 第三方 API key 只在后端使用，前端只接收掩码字段
 - `POST /api/image-jobs` 创建任务后立即返回 `queued`，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。
-- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`。
-- OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断。
-- Google 使用 Gemini 图像生成协议：基础地址写在后端 provider 方法内，后端拼接 `{modelName}:generateContent`，通过 `x-goog-api-key` 鉴权。
+- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。
+- OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断；`aspectRatio = auto` 时 `size` 传 `auto`。
+- Google 使用 Gemini 图像生成协议：基础地址写在后端 provider 方法内，后端拼接 `{modelName}:generateContent`，通过 `x-goog-api-key` 鉴权；`aspectRatio = auto` 时不发送固定 `imageConfig.aspectRatio`。
+- image-youyu 使用固定地址 `https://image.youyu.help/v1/images`：无参考图时 `POST /generations` 并发送 JSON，有参考图时 `POST /edits` 并发送 multipart；请求字段只包含 `prompt`、`quality`、`size`、`output_format`、`n`，图生图额外包含 `image`，不发送 `model` 字段。`quality` 将 `0.5k/1k` 映射为 `1k`、`2k/4k` 映射为 `2k`；`size` 将 `auto/1:1` 映射为 `1024x1024`、`4:3/16:9` 映射为 `1536x1024`、`3:4/9:16` 映射为 `1024x1536`；`output_format` 固定为 `png`。
+- provider 请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
 - 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。
 
 ## 图片本地路径规划

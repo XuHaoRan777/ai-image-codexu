@@ -1,5 +1,6 @@
 import type {
   AssistantProviderMode,
+  AspectRatio,
   ImageJobStatus,
   ImageProviderType,
   ImageResolution,
@@ -22,18 +23,29 @@ export const providerTypeLabels: Record<ImageProviderType, string> = {
   openai: "OpenAI 官方",
   google: "Google Gemini",
   onetopai: "OneTopAI",
+  "image-youyu": "image-youyu",
 }
 
 export const providerDefaultModelNames: Record<ImageProviderType, string> = {
   openai: "gpt-image-2",
   google: "gemini-3.1-flash-image",
   onetopai: "gpt-image-2",
+  "image-youyu": "image-youyu",
 }
 
 export type ReferenceImage = {
   id: string
   name: string
   dataUrl: string
+}
+
+export const aspectRatioLabels: Record<AspectRatio, string> = {
+  auto: "自适应",
+  "1:1": "1:1",
+  "4:3": "4:3",
+  "3:4": "3:4",
+  "16:9": "16:9",
+  "9:16": "9:16",
 }
 
 export const resolutionLabels: Record<ImageResolution, string> = {

@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor';
 
+/**
+ * 启动 Nest 应用并注册全局前缀、跨域、异常过滤器和响应拦截器。
+ */
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   // 获取配置服务

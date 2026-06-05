@@ -24,16 +24,25 @@ import { ImageGenerationService } from './image-generation.service';
 
 @Controller()
 export class ImageGenerationController {
+  /**
+   * 注入生图配置与任务服务。
+   */
   constructor(
     private readonly imageGenerationService: ImageGenerationService,
   ) {}
 
   @Get('image-model-configs')
+  /**
+   * 查询全部生图模型配置。
+   */
   listImageModelConfigs() {
     return this.imageGenerationService.listImageModelConfigs();
   }
 
   @Post('image-model-configs')
+  /**
+   * 校验并创建新的生图模型配置。
+   */
   createImageModelConfig(@Body() body: CreateImageModelConfigInput) {
     return this.imageGenerationService.createImageModelConfig(
       createImageModelConfigSchema.parse(body),
@@ -41,6 +50,9 @@ export class ImageGenerationController {
   }
 
   @Patch('image-model-configs/:id')
+  /**
+   * 校验并更新指定生图模型配置。
+   */
   async updateImageModelConfig(
     @Param('id') id: string,
     @Body() body: UpdateImageModelConfigInput,
@@ -58,6 +70,9 @@ export class ImageGenerationController {
   }
 
   @Patch('image-model-configs/:id/enabled')
+  /**
+   * 仅更新指定生图模型配置的启用状态。
+   */
   async updateImageModelConfigEnabled(
     @Param('id') id: string,
     @Body() body: UpdateImageModelConfigEnabledInput,
@@ -76,6 +91,9 @@ export class ImageGenerationController {
   }
 
   @Delete('image-model-configs/:id')
+  /**
+   * 删除指定生图模型配置。
+   */
   async deleteImageModelConfig(@Param('id') id: string) {
     const deleted = await this.imageGenerationService.deleteImageModelConfig(
       id,
@@ -89,6 +107,9 @@ export class ImageGenerationController {
   }
 
   @Post('image-jobs')
+  /**
+   * 校验请求并创建生图任务。
+   */
   createImageJob(@Body() body: CreateImageJobInput) {
     return this.imageGenerationService.createImageJob(
       createImageJobSchema.parse(body),
@@ -96,6 +117,9 @@ export class ImageGenerationController {
   }
 
   @Get('image-jobs/:id')
+  /**
+   * 查询指定生图任务。
+   */
   getImageJob(@Param('id') id: string) {
     const job = this.imageGenerationService.getImageJob(id);
 

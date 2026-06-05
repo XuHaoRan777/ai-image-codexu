@@ -17,17 +17,24 @@ import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
 import { ImageProviderDispatcher } from './image-generation.providers';
 
+/**
+ * 返回当前时间的 ISO 字符串，供内存任务状态更新时间使用。
+ */
 const now = () => new Date().toISOString();
 const defaultModelNames: Record<ImageProviderType, string> = {
   openai: 'gpt-image-2',
   google: 'gemini-3.1-flash-image',
   onetopai: 'gpt-image-2',
+  'image-youyu': 'image-youyu',
 };
 
 @Injectable()
 export class ImageGenerationService {
   private imageJobs: ImageJob[] = [];
 
+  /**
+   * 注入模型配置仓储、图片存储服务和 provider 分发器。
+   */
   constructor(
     @InjectRepository(ImageModelConfigEntity)
     private readonly imageModelConfigRepository: Repository<ImageModelConfigEntity>,
@@ -35,6 +42,9 @@ export class ImageGenerationService {
     private readonly imageProviderDispatcher: ImageProviderDispatcher,
   ) {}
 
+  /**
+   * 按创建时间倒序查询全部生图模型配置。
+   */
   async listImageModelConfigs() {
     const configs = await this.imageModelConfigRepository.find({
       order: { createdAt: 'DESC' },
@@ -43,6 +53,9 @@ export class ImageGenerationService {
     return configs.map((config) => this.toImageModelConfig(config));
   }
 
+  /**
+   * 创建生图模型配置，并将 API key 加密后持久化。
+   */
   async createImageModelConfig(input: CreateImageModelConfigInput) {
     const timestamp = new Date();
     const apiKey = input.apiKey?.trim() ?? '';
@@ -62,10 +75,10 @@ export class ImageGenerationService {
     return this.toImageModelConfig(saved);
   }
 
-  async updateImageModelConfig(
-    id: string,
-    input: UpdateImageModelConfigInput,
-  ) {
+  /**
+   * 更新生图模型配置；密钥为空时保留原密钥。
+   */
+  async updateImageModelConfig(id: string, input: UpdateImageModelConfigInput) {
     const existing = await this.imageModelConfigRepository.findOneBy({ id });
 
     if (!existing) {
@@ -96,6 +109,9 @@ export class ImageGenerationService {
     return this.toImageModelConfig(saved);
   }
 
+  /**
+   * 只更新生图模型配置的启用状态。
+   */
   async updateImageModelConfigEnabled(
     id: string,
     input: UpdateImageModelConfigEnabledInput,
@@ -114,12 +130,18 @@ export class ImageGenerationService {
     return this.toImageModelConfig(saved);
   }
 
+  /**
+   * 删除指定生图模型配置。
+   */
   async deleteImageModelConfig(id: string) {
     const result = await this.imageModelConfigRepository.delete({ id });
 
     return (result.affected ?? 0) > 0;
   }
 
+  /**
+   * 创建内存生图任务，并异步启动真实生图流程。
+   */
   async createImageJob(input: CreateImageJobInput) {
     const config = await this.imageModelConfigRepository.findOneBy({
       id: input.configId,
@@ -157,14 +179,17 @@ export class ImageGenerationService {
     return job;
   }
 
+  /**
+   * 从当前进程内存中查询指定生图任务。
+   */
   getImageJob(id: string) {
     return this.imageJobs.find((job) => job.id === id);
   }
 
-  private async runImageJob(
-    job: ImageJob,
-    config: ImageModelConfigEntity,
-  ) {
+  /**
+   * 执行真实 provider 请求，并把生成图片保存到本地存储。
+   */
+  private async runImageJob(job: ImageJob, config: ImageModelConfigEntity) {
     job.status = 'running';
     job.updatedAt = now();
 
@@ -209,9 +234,10 @@ export class ImageGenerationService {
     }
   }
 
-  private toImageModelConfig(
-    entity: ImageModelConfigEntity,
-  ): ImageModelConfig {
+  /**
+   * 将数据库实体转换为前端可接收的配置结构。
+   */
+  private toImageModelConfig(entity: ImageModelConfigEntity): ImageModelConfig {
     return {
       id: entity.id,
       name: entity.name,
@@ -225,10 +251,16 @@ export class ImageGenerationService {
   }
 }
 
+/**
+ * 根据配置 override 或来源默认值决定任务实际记录的模型名。
+ */
 function resolveModelName(config: ImageModelConfigEntity) {
   return config.modelNameOverride || defaultModelNames[config.providerType];
 }
 
+/**
+ * 将图片 MIME 类型转换为本地文件扩展名。
+ */
 function mimeTypeToExtension(mimeType: string) {
   switch (mimeType) {
     case 'image/jpeg':

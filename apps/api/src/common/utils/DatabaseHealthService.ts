@@ -14,6 +14,9 @@ export class DatabaseHealthService {
   private readonly MAX_FAILURES = 3; // 连续失败阈值
   private isReconnecting = false; // 防止并发重连
 
+  /**
+   * 注入 TypeORM DataSource 用于健康检查和重连。
+   */
   constructor(@InjectDataSource() private dataSource: DataSource) {}
 
   /**

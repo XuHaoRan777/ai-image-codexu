@@ -107,7 +107,7 @@ describe('ImageGenerationService', () => {
     const job = await service.createImageJob({
       configId: config.id,
       prompt: 'test prompt',
-      aspectRatio: '1:1',
+      aspectRatio: 'auto',
       resolution: '1k',
       quantity: 1,
     });
@@ -116,6 +116,7 @@ describe('ImageGenerationService', () => {
     expect(job.configId).toBe(config.id);
     expect(job.providerType).toBe('onetopai');
     expect(job.modelName).toBe('gpt-image-2');
+    expect(job.aspectRatio).toBe('auto');
     expect(job.resolution).toBe('1k');
     expect(job.quantity).toBe(1);
 
@@ -159,6 +160,9 @@ describe('ImageGenerationService', () => {
   });
 });
 
+/**
+ * 创建用于单元测试的内存版 TypeORM Repository。
+ */
 function createMemoryRepository<T extends { id: string; createdAt: Date }>() {
   const items: T[] = [];
 
@@ -203,6 +207,9 @@ function createMemoryRepository<T extends { id: string; createdAt: Date }>() {
   } as unknown as Repository<T>;
 }
 
+/**
+ * 将实体插入或覆盖到内存集合中。
+ */
 function saveOne<T extends { id: string }>(items: T[], entity: T) {
   const index = items.findIndex((item) => item.id === entity.id);
 

@@ -84,7 +84,7 @@ function App() {
   const [prompt, setPrompt] = useState("")
   const [optimizedPrompt, setOptimizedPrompt] = useState("")
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1")
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("auto")
   const [resolution, setResolution] = useState<ImageResolution>("1k")
   const [quantity, setQuantity] = useState<ImageQuantity>(1)
   const [lastJob, setLastJob] = useState<ImageJob | null>(null)

@@ -12,6 +12,9 @@ export class ApiResponseInterceptor<T> implements NestInterceptor<
   T,
   ApiResponse<T>
 > {
+  /**
+   * 将普通 controller 返回值包装为统一 API 响应结构。
+   */
   intercept(
     context: ExecutionContext,
     next: CallHandler<T>,
