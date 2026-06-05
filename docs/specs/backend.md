@@ -2,7 +2,7 @@
 
 ## 范围
 
-后端位于 `apps/api`，使用 NestJS。当前阶段已加入环境变量配置和 MySQL/TypeORM 基础配置；业务数据仍暂存在内存中，后续再接入实体、迁移和持久化服务。
+后端位于 `apps/api`，使用 NestJS。当前阶段已加入环境变量配置和 MySQL/TypeORM 基础配置；配置页数据已接入 TypeORM 实体和 Repository，生图任务数据仍暂存在内存中，后续再接入任务实体、迁移和持久化服务。
 
 ## 当前职责
 
@@ -35,6 +35,7 @@ apps/api/src/
 - `GET /api/image-model-configs`
 - `POST /api/image-model-configs`
 - `PATCH /api/image-model-configs/:id`
+- `PATCH /api/image-model-configs/:id/enabled`
 - `DELETE /api/image-model-configs/:id`
 - `GET /api/assistant-config`
 - `PUT /api/assistant-config`
@@ -44,17 +45,50 @@ apps/api/src/
 
 `POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
 
+配置页接口由 shared schema 校验，当前持久化范围：
+
+- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
+- `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
+- `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
+- 配置页不注入默认测试配置；`image_model_config` 空表时 `GET /api/image-model-configs` 返回空列表，配置必须来自真实创建请求或数据库记录。
+- API key 使用 AES-256-GCM 加密后入库。生产环境必须配置 `API_KEY_ENCRYPTION_SECRET` 或 `APP_SECRET`；开发环境未配置时使用固定开发 fallback。历史上只保存 `api_key_masked` 的记录无法反推原始密钥，需要在配置页重新填写密钥。
+
 ## 数据库规划
 
 数据库计划使用 MySQL。当前配置通过 `.env.development` / `.env.production` 提供。引入业务持久化前需要先确定：
 
 - ORM 或查询层方案
 - migration 管理方式
-- API key 加密存储方式
+- API key 轮换与外部 Secret Manager 接入方式
 - 生图配置表结构
 - 辅助模型配置表结构
 - 生图任务表结构
 - 生成图片资产与本地图片路径的关系
+
+### 当前配置实体
+
+`image_model_config`：
+
+- `id`：varchar(64) 主键
+- `name`：配置名称
+- `model_type`：`gpt-image-2` 或 `nano-banana-2`
+- `base_url`：请求地址
+- `api_key_masked`：掩码密钥，仅用于前端展示
+- `api_key_encrypted`：加密密文，供后端真实请求时解密使用
+- `model_name_override`：模型名 override，可为空
+- `enabled`：是否启用
+- `created_at` / `updated_at`：创建与更新时间
+
+`assistant_model_config`：
+
+- `id`：varchar(64) 主键，当前固定为 `default`
+- `mode`：`openai` 或 `claude`
+- `base_url`：请求地址，可为空
+- `api_key_masked`：掩码密钥，仅用于前端展示
+- `api_key_encrypted`：加密密文，供后端真实请求时解密使用
+- `model_name`：模型名
+- `enabled`：是否启用
+- `created_at` / `updated_at`：创建与更新时间
 
 ### 实体类规范
 

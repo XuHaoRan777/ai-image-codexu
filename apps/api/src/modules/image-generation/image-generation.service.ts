@@ -1,101 +1,125 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import type {
   CreateImageJobInput,
   CreateImageModelConfigInput,
   ImageJob,
   ImageModelConfig,
+  UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from '@ai-image-codexu/shared';
+import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/maskSecret';
+import { encryptSecret } from '../../common/utils/secretCrypto';
+import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
 
 const now = () => new Date().toISOString();
 
 @Injectable()
 export class ImageGenerationService {
-  private imageModelConfigs: ImageModelConfig[] = [
-    {
-      id: crypto.randomUUID(),
-      name: '默认 OpenAI 中转',
-      modelType: 'gpt-image-2',
-      baseUrl: 'https://api.example.com/v1/images',
-      apiKeyMasked: 'sk-****demo',
-      modelNameOverride: 'gpt-image-2',
-      enabled: true,
-      createdAt: now(),
-      updatedAt: now(),
-    },
-    {
-      id: crypto.randomUUID(),
-      name: '默认 Nano Banana 2 中转',
-      modelType: 'nano-banana-2',
-      baseUrl: 'https://api.example.com/v1/gemini',
-      apiKeyMasked: 'gb-****demo',
-      modelNameOverride: 'gemini-3.1-flash-image',
-      enabled: true,
-      createdAt: now(),
-      updatedAt: now(),
-    },
-  ];
-
   private imageJobs: ImageJob[] = [];
 
-  constructor(private readonly imageStorageService: ImageStorageService) {}
+  constructor(
+    @InjectRepository(ImageModelConfigEntity)
+    private readonly imageModelConfigRepository: Repository<ImageModelConfigEntity>,
+    private readonly imageStorageService: ImageStorageService,
+  ) {}
 
-  listImageModelConfigs() {
-    return this.imageModelConfigs;
+  async listImageModelConfigs() {
+    const configs = await this.imageModelConfigRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    return configs.map((config) => this.toImageModelConfig(config));
   }
 
-  createImageModelConfig(input: CreateImageModelConfigInput) {
-    const timestamp = now();
-    const config: ImageModelConfig = {
+  async createImageModelConfig(input: CreateImageModelConfigInput) {
+    const timestamp = new Date();
+    const apiKey = input.apiKey.trim();
+    const config = this.imageModelConfigRepository.create({
       id: crypto.randomUUID(),
       name: input.name,
       modelType: input.modelType,
       baseUrl: input.baseUrl,
-      apiKeyMasked: maskSecret(input.apiKey),
-      modelNameOverride: input.modelNameOverride,
+      apiKeyMasked: maskSecret(apiKey) ?? null,
+      apiKeyEncrypted: encryptSecret(apiKey),
+      modelNameOverride: input.modelNameOverride || null,
       enabled: input.enabled,
       createdAt: timestamp,
       updatedAt: timestamp,
-    };
+    });
+    const saved = await this.imageModelConfigRepository.save(config);
 
-    this.imageModelConfigs.unshift(config);
-    return config;
+    return this.toImageModelConfig(saved);
   }
 
-  updateImageModelConfig(id: string, input: UpdateImageModelConfigInput) {
-    const existing = this.imageModelConfigs.find((config) => config.id === id);
+  async updateImageModelConfig(
+    id: string,
+    input: UpdateImageModelConfigInput,
+  ) {
+    const existing = await this.imageModelConfigRepository.findOneBy({ id });
 
     if (!existing) {
       return null;
     }
 
-    Object.assign(existing, {
-      ...input,
-      apiKeyMasked:
-        input.apiKey === undefined
-          ? existing.apiKeyMasked
-          : maskSecret(input.apiKey),
-      updatedAt: now(),
+    if (input.name !== undefined) {
+      existing.name = input.name;
+    }
+    if (input.modelType !== undefined) {
+      existing.modelType = input.modelType;
+    }
+    if (input.baseUrl !== undefined) {
+      existing.baseUrl = input.baseUrl;
+    }
+    if (input.apiKey !== undefined && input.apiKey.trim() !== '') {
+      const apiKey = input.apiKey.trim();
+      existing.apiKeyMasked = maskSecret(apiKey) ?? null;
+      existing.apiKeyEncrypted = encryptSecret(apiKey);
+    }
+    if (input.modelNameOverride !== undefined) {
+      existing.modelNameOverride = input.modelNameOverride || null;
+    }
+    if (input.enabled !== undefined) {
+      existing.enabled = input.enabled;
+    }
+    existing.updatedAt = new Date();
+
+    const saved = await this.imageModelConfigRepository.save(existing);
+
+    return this.toImageModelConfig(saved);
+  }
+
+  async updateImageModelConfigEnabled(
+    id: string,
+    input: UpdateImageModelConfigEnabledInput,
+  ) {
+    const existing = await this.imageModelConfigRepository.findOneBy({ id });
+
+    if (!existing) {
+      return null;
+    }
+
+    existing.enabled = input.enabled;
+    existing.updatedAt = new Date();
+
+    const saved = await this.imageModelConfigRepository.save(existing);
+
+    return this.toImageModelConfig(saved);
+  }
+
+  async deleteImageModelConfig(id: string) {
+    const result = await this.imageModelConfigRepository.delete({ id });
+
+    return (result.affected ?? 0) > 0;
+  }
+
+  async createImageJob(input: CreateImageJobInput) {
+    const config = await this.imageModelConfigRepository.findOneBy({
+      id: input.configId,
+      enabled: true,
     });
-
-    return existing;
-  }
-
-  deleteImageModelConfig(id: string) {
-    const initialLength = this.imageModelConfigs.length;
-    this.imageModelConfigs = this.imageModelConfigs.filter(
-      (config) => config.id !== id,
-    );
-
-    return this.imageModelConfigs.length !== initialLength;
-  }
-
-  createImageJob(input: CreateImageJobInput) {
-    const config = this.imageModelConfigs.find(
-      (item) => item.id === input.configId && item.enabled,
-    );
 
     if (!config) {
       throw new NotFoundException('可用的生图模型配置不存在');
@@ -130,5 +154,21 @@ export class ImageGenerationService {
 
   getImageJob(id: string) {
     return this.imageJobs.find((job) => job.id === id);
+  }
+
+  private toImageModelConfig(
+    entity: ImageModelConfigEntity,
+  ): ImageModelConfig {
+    return {
+      id: entity.id,
+      name: entity.name,
+      modelType: entity.modelType,
+      baseUrl: entity.baseUrl,
+      apiKeyMasked: entity.apiKeyMasked ?? undefined,
+      modelNameOverride: entity.modelNameOverride ?? undefined,
+      enabled: entity.enabled,
+      createdAt: entity.createdAt.toISOString(),
+      updatedAt: entity.updatedAt.toISOString(),
+    };
   }
 }

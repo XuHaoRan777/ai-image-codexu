@@ -16,6 +16,7 @@
 - 三个主页面不设置页面级标题说明区，操作反馈通过顶部全局 Toast 展示
 - 主内容区外边距四向一致，避免顶部与左右边缘留白不协调
 - 左侧导航包含“生图”“历史”“配置”，并展示当前模型配置数量、辅助模型状态；移动端侧栏自然堆叠到顶部
+- 三个主页面使用 hash 路由保持刷新状态：`#/generate`、`#/history`、`#/settings`；未知 hash 回退到生图页
 - 表单输入、选择器、预览画布和配置列表保持 8px 圆角以内，符合 shadcn 控件基础风格
 - 图标统一使用 `lucide-react`，不使用 emoji 作为结构化图标
 - 交互控件保留可见 focus ring、loading disabled 状态和至少 40px 以上的点击高度
@@ -29,12 +30,13 @@
 - 新增和编辑生图模型配置，编辑时密钥留空表示不更新密钥
 - 选择模型类型：GPT Image 2 或 Google Nano Banana 2
 - 填写配置名称、请求地址、密钥、模型名 override、启用状态
-- 表单内请求地址和密钥同排，模型名 override 和启用 Switch 同排
+- 表单内请求地址和密钥同排，模型名 override 和启用配置同排且等宽；启用配置必须使用可点击的 Switch 组件
 - 维护固定单条辅助模型配置，辅助模型不再提供“启用提示词优化”开关项
 - 辅助模型支持 OpenAI 模式和 Claude 模式
 - 以“模型库优先、表单按需弹窗、辅助模型右侧维护”的结构组织配置工作流
 - 模型库在桌面端按卡片网格展示，一行最多 3 个配置项
-- 模型配置项只展示配置名称和实际模型名称，右侧提供编辑和删除按钮
+- 模型配置项展示配置名称、实际模型名称和启用状态；启用 Switch 放在配置项内部，切换时调用后端专用启停接口
+- 模型配置项右侧提供编辑和删除按钮；启用状态用低调色点、边框和行内 Switch 表达，不额外展开说明文案
 - 暂无模型配置时只展示透明化空状态标题，不展示额外说明
 
 ### 生图页面
@@ -77,6 +79,7 @@
 - API 调用集中在 `apps/web/src/lib/api.ts`
 - 页面组件拆分在 `apps/web/src/pages`：`generate-page.tsx`、`history-page.tsx`、`settings-page.tsx`
 - `App.tsx` 只保留全局状态、API handler、侧边栏和页面切换容器
+- `App.tsx` 负责解析 hash 路由并同步导航状态；页面切换不得只依赖内存中的 React state
 - 全局提示工具位于 `apps/web/src/lib/toast.ts`，渲染组件为 `apps/web/src/components/global-toast.tsx`
 - Toast 支持 `success` 绿色、`warning` 黄色、`error` 红色、`info` 灰色四种状态，统一从页面顶部弹出
 - shared 类型从 `@ai-image-codexu/shared` 引入

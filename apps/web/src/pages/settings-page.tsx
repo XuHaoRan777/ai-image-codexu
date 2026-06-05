@@ -40,6 +40,7 @@ import {
   modelLabels,
   type AssistantFormState,
 } from "@/lib/image-ui"
+import { cn } from "@/lib/utils"
 
 export function SettingsPage({
   assistantForm,
@@ -48,6 +49,7 @@ export function SettingsPage({
   imageConfigForm,
   imageConfigs,
   loading,
+  updatingConfigEnabledId,
   onAssistantFormChange,
   onCancelConfigForm,
   onDeleteConfig,
@@ -56,6 +58,7 @@ export function SettingsPage({
   onSaveAssistant,
   onSaveImageConfig,
   onStartCreateConfig,
+  onToggleConfigEnabled,
 }: {
   assistantForm: AssistantFormState
   configFormVisible: boolean
@@ -63,6 +66,7 @@ export function SettingsPage({
   imageConfigForm: CreateImageModelConfigInput
   imageConfigs: ImageModelConfig[]
   loading: boolean
+  updatingConfigEnabledId: string
   onAssistantFormChange: (value: AssistantFormState) => void
   onCancelConfigForm: () => void
   onDeleteConfig: (id: string) => void
@@ -71,6 +75,7 @@ export function SettingsPage({
   onSaveAssistant: () => void
   onSaveImageConfig: () => void
   onStartCreateConfig: () => void
+  onToggleConfigEnabled: (id: string, enabled: boolean) => void
 }) {
   return (
     <div className="grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
@@ -90,41 +95,88 @@ export function SettingsPage({
         <CardContent className="pt-1 lg:min-h-0 lg:overflow-auto">
           {imageConfigs.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-              {imageConfigs.map((config) => (
-                <div
-                  key={config.id}
-                  className="rounded-lg border border-border/70 bg-background/45 p-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{config.name}</p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {config.modelNameOverride || modelLabels[config.modelType]}
-                      </p>
+              {imageConfigs.map((config) => {
+                const switchId = `config-enabled-${config.id}`
+                const isUpdating = updatingConfigEnabledId === config.id
+                const modelName =
+                  config.modelNameOverride || modelLabels[config.modelType]
+
+                return (
+                  <div
+                    key={config.id}
+                    className={cn(
+                      "group rounded-lg border p-3 transition-colors",
+                      config.enabled
+                        ? "border-emerald-300/25 bg-emerald-300/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                        : "border-border/65 bg-background/35",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={cn(
+                              "size-2 shrink-0 rounded-full",
+                              config.enabled
+                                ? "bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.42)]"
+                                : "bg-muted-foreground/45",
+                            )}
+                            aria-hidden="true"
+                          />
+                          <p className="truncate text-sm font-medium">
+                            {config.name}
+                          </p>
+                        </div>
+                        <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
+                          {modelName}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          size="icon-sm"
+                          variant="outline"
+                          className="size-9"
+                          onClick={() => onEditConfig(config)}
+                          aria-label="编辑配置"
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="destructive"
+                          className="size-9"
+                          onClick={() => onDeleteConfig(config.id)}
+                          aria-label="删除配置"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button
-                        size="icon-sm"
-                        variant="outline"
-                        className="size-9"
-                        onClick={() => onEditConfig(config)}
-                        aria-label="编辑配置"
+
+                    <div className="mt-3 flex min-h-10 items-center justify-between gap-3 rounded-md border border-border/60 bg-background/35 px-3">
+                      <Label
+                        htmlFor={switchId}
+                        className="flex min-w-0 items-center gap-2 text-sm"
                       >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="destructive"
-                        className="size-9"
-                        onClick={() => onDeleteConfig(config.id)}
-                        aria-label="删除配置"
-                      >
-                        <Trash2 />
-                      </Button>
+                        <span className="text-foreground">启用</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {config.enabled ? "已启用" : "已停用"}
+                        </span>
+                      </Label>
+                      <Switch
+                        id={switchId}
+                        size="sm"
+                        checked={config.enabled}
+                        disabled={isUpdating}
+                        onCheckedChange={(enabled) =>
+                          onToggleConfigEnabled(config.id, enabled)
+                        }
+                        aria-label={`${config.name} 启用状态`}
+                      />
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <EmptyPanel icon={Layers3} title="暂无模型配置" />
@@ -222,7 +274,7 @@ export function SettingsPage({
               </Field>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
+            <div className="grid gap-3 md:grid-cols-2">
               <Field id="model-name-override" label="模型名 Override">
                 <Input
                   id="model-name-override"
@@ -237,18 +289,23 @@ export function SettingsPage({
                   }
                 />
               </Field>
-              <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/45 px-3">
-                <Label className="text-sm text-foreground">启用配置</Label>
-                <Switch
-                  checked={imageConfigForm.enabled}
-                  onCheckedChange={(enabled) =>
-                    onImageConfigFormChange({
-                      ...imageConfigForm,
-                      enabled,
-                    })
-                  }
-                />
-              </div>
+              <Field id="config-enabled" label="启用配置">
+                <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/55 px-3">
+                  <span className="text-sm text-muted-foreground">
+                    {imageConfigForm.enabled ? "已启用" : "已停用"}
+                  </span>
+                  <Switch
+                    id="config-enabled"
+                    checked={imageConfigForm.enabled}
+                    onCheckedChange={(enabled) =>
+                      onImageConfigFormChange({
+                        ...imageConfigForm,
+                        enabled,
+                      })
+                    }
+                  />
+                </div>
+              </Field>
             </div>
 
             <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-end">

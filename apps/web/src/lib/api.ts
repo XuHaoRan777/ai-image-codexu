@@ -7,6 +7,7 @@ import type {
   ImageModelConfig,
   PromptOptimizeResponse,
   UpdateAssistantModelConfigInput,
+  UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from "@ai-image-codexu/shared"
 import { isApiSuccessResponseCode } from "@ai-image-codexu/shared"
@@ -75,6 +76,14 @@ export const api = {
     }),
   updateImageModelConfig: (id: string, input: UpdateImageModelConfigInput) =>
     request<ImageModelConfig>(`/image-model-configs/${id}`, {
+      method: "PATCH",
+      data: input,
+    }),
+  updateImageModelConfigEnabled: (
+    id: string,
+    input: UpdateImageModelConfigEnabledInput,
+  ) =>
+    request<ImageModelConfig>(`/image-model-configs/${id}/enabled`, {
       method: "PATCH",
       data: input,
     }),

@@ -21,14 +21,14 @@ export class PromptOptimizerController {
   }
 
   @Put('assistant-config')
-  updateAssistantConfig(@Body() body: UpdateAssistantModelConfigInput) {
+  async updateAssistantConfig(@Body() body: UpdateAssistantModelConfigInput) {
     return this.promptOptimizerService.updateAssistantConfig(
       updateAssistantModelConfigSchema.parse(body),
     );
   }
 
   @Post('prompt/optimize')
-  optimizePrompt(@Body() body: PromptOptimizeRequest) {
+  async optimizePrompt(@Body() body: PromptOptimizeRequest) {
     return this.promptOptimizerService.optimizePrompt(
       promptOptimizeRequestSchema.parse(body),
     );

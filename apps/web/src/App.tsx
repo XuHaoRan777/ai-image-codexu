@@ -32,6 +32,26 @@ import { SettingsPage } from "@/pages/settings-page"
 
 type View = "generate" | "history" | "settings"
 
+const viewHashes: Record<View, string> = {
+  generate: "#/generate",
+  history: "#/history",
+  settings: "#/settings",
+}
+
+function readViewFromHash(): View {
+  if (typeof window === "undefined") {
+    return "generate"
+  }
+
+  const route = window.location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]
+
+  if (route === "history" || route === "settings" || route === "generate") {
+    return route
+  }
+
+  return "generate"
+}
+
 const initialImageConfigForm: CreateImageModelConfigInput = {
   name: "",
   modelType: "gpt-image-2",
@@ -50,7 +70,7 @@ const initialAssistantForm: AssistantFormState = {
 }
 
 function App() {
-  const [view, setView] = useState<View>("generate")
+  const [view, setView] = useState<View>(() => readViewFromHash())
   const [imageConfigs, setImageConfigs] = useState<ImageModelConfig[]>([])
   const [assistantConfig, setAssistantConfig] =
     useState<AssistantModelConfig | null>(null)
@@ -70,6 +90,7 @@ function App() {
   const [selectedHistoryJobId, setSelectedHistoryJobId] = useState("")
   const [loading, setLoading] = useState(false)
   const [creatingJob, setCreatingJob] = useState(false)
+  const [updatingConfigEnabledId, setUpdatingConfigEnabledId] = useState("")
 
   const enabledConfigs = useMemo(
     () => imageConfigs.filter((config) => config.enabled),
@@ -105,7 +126,7 @@ function App() {
     })
 
     if (!selectedConfigId && configs.length > 0) {
-      setSelectedConfigId(configs.find((item) => item.enabled)?.id ?? configs[0].id)
+      setSelectedConfigId(configs.find((item) => item.enabled)?.id ?? "")
     }
   }
 
@@ -144,6 +165,26 @@ function App() {
     setConfigFormVisible(false)
   }
 
+  function navigateToView(nextView: View) {
+    setView(nextView)
+
+    if (window.location.hash !== viewHashes[nextView]) {
+      window.location.hash = viewHashes[nextView]
+    }
+  }
+
+  useEffect(() => {
+    function handleHashChange() {
+      setView(readViewFromHash())
+    }
+
+    window.addEventListener("hashchange", handleHashChange)
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange)
+    }
+  }, [])
+
   useEffect(() => {
     let ignore = false
 
@@ -168,7 +209,7 @@ function App() {
           enabled: assistant.enabled,
         })
         setSelectedConfigId(
-          configs.find((item) => item.enabled)?.id ?? configs[0]?.id ?? "",
+          configs.find((item) => item.enabled)?.id ?? "",
         )
       } catch (error) {
         if (!ignore) {
@@ -202,7 +243,9 @@ function App() {
       } else {
         const created = await api.createImageModelConfig(imageConfigForm)
         setImageConfigs((current) => [created, ...current])
-        setSelectedConfigId(created.id)
+        if (created.enabled) {
+          setSelectedConfigId(created.id)
+        }
         toast.success("生图模型配置已新增")
       }
 
@@ -231,6 +274,39 @@ function App() {
       toast.error(error instanceof Error ? error.message : "删除配置失败")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleToggleConfigEnabled(id: string, enabled: boolean) {
+    setUpdatingConfigEnabledId(id)
+
+    try {
+      const updated = await api.updateImageModelConfigEnabled(id, { enabled })
+
+      setImageConfigs((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      )
+      setSelectedConfigId((currentSelectedId) => {
+        if (updated.enabled) {
+          return currentSelectedId || updated.id
+        }
+
+        if (currentSelectedId !== updated.id) {
+          return currentSelectedId
+        }
+
+        const nextConfigs = imageConfigs.map((item) =>
+          item.id === updated.id ? updated : item,
+        )
+        const nextEnabledConfigs = nextConfigs.filter((item) => item.enabled)
+
+        return nextEnabledConfigs[0]?.id ?? ""
+      })
+      toast.success(enabled ? "模型配置已启用" : "模型配置已停用")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "更新启用状态失败")
+    } finally {
+      setUpdatingConfigEnabledId("")
     }
   }
 
@@ -331,11 +407,12 @@ function App() {
           <nav className="mt-6 grid gap-2" aria-label="主导航">
             <NavButton
               active={view === "generate"}
+              href={viewHashes.generate}
               icon={ImagePlus}
               label="生图"
               tone="green"
               onClick={() => {
-                setView("generate")
+                navigateToView("generate")
                 void refreshConfigs().catch((error: Error) =>
                   toast.error(error.message),
                 )
@@ -343,17 +420,19 @@ function App() {
             />
             <NavButton
               active={view === "history"}
+              href={viewHashes.history}
               icon={History}
               label="历史"
               tone="cyan"
-              onClick={() => setView("history")}
+              onClick={() => navigateToView("history")}
             />
             <NavButton
               active={view === "settings"}
+              href={viewHashes.settings}
               icon={Settings}
               label="配置"
               tone="amber"
-              onClick={() => setView("settings")}
+              onClick={() => navigateToView("settings")}
             />
           </nav>
 
@@ -423,6 +502,7 @@ function App() {
                 imageConfigForm={imageConfigForm}
                 imageConfigs={imageConfigs}
                 loading={loading}
+                updatingConfigEnabledId={updatingConfigEnabledId}
                 onAssistantFormChange={setAssistantForm}
                 onCancelConfigForm={cancelConfigForm}
                 onDeleteConfig={handleDeleteConfig}
@@ -431,6 +511,7 @@ function App() {
                 onSaveAssistant={handleSaveAssistant}
                 onSaveImageConfig={handleSaveImageConfig}
                 onStartCreateConfig={startCreateConfig}
+                onToggleConfigEnabled={handleToggleConfigEnabled}
               />
             )}
           </div>
@@ -443,12 +524,14 @@ function App() {
 
 function NavButton({
   active,
+  href,
   icon: Icon,
   label,
   onClick,
   tone,
 }: {
   active: boolean
+  href: string
   icon: LucideIcon
   label: string
   onClick: () => void
@@ -456,6 +539,7 @@ function NavButton({
 }) {
   return (
     <Button
+      asChild
       variant={active ? "secondary" : "ghost"}
       className={cn(
         "h-11 justify-start rounded-lg px-3 text-sm",
@@ -469,10 +553,18 @@ function NavButton({
           tone === "amber" &&
           "border border-amber-300/20 bg-amber-300/10 text-amber-50 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.08)]",
       )}
-      onClick={onClick}
     >
-      <Icon data-icon="inline-start" />
-      {label}
+      <a
+        aria-current={active ? "page" : undefined}
+        href={href}
+        onClick={(event) => {
+          event.preventDefault()
+          onClick()
+        }}
+      >
+        <Icon data-icon="inline-start" />
+        {label}
+      </a>
     </Button>
   )
 }

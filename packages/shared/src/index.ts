@@ -102,6 +102,10 @@ export const updateImageModelConfigSchema = createImageModelConfigSchema
     apiKey: z.string().optional(),
   });
 
+export const updateImageModelConfigEnabledSchema = z.object({
+  enabled: z.boolean(),
+});
+
 export const assistantModelConfigSchema = z.object({
   mode: z.enum(assistantProviderModes),
   baseUrl: z.url('请求地址格式不正确').or(z.literal('')),
@@ -173,6 +177,9 @@ export type CreateImageModelConfigInput = z.infer<
 >;
 export type UpdateImageModelConfigInput = z.infer<
   typeof updateImageModelConfigSchema
+>;
+export type UpdateImageModelConfigEnabledInput = z.infer<
+  typeof updateImageModelConfigEnabledSchema
 >;
 export type AssistantModelConfig = z.infer<typeof assistantModelConfigSchema>;
 export type UpdateAssistantModelConfigInput = z.infer<

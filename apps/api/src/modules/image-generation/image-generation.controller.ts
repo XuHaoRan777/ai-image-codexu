@@ -11,11 +11,13 @@ import {
 import type {
   CreateImageJobInput,
   CreateImageModelConfigInput,
+  UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from '@ai-image-codexu/shared';
 import {
   createImageJobSchema,
   createImageModelConfigSchema,
+  updateImageModelConfigEnabledSchema,
   updateImageModelConfigSchema,
 } from '@ai-image-codexu/shared';
 import { ImageGenerationService } from './image-generation.service';
@@ -39,11 +41,11 @@ export class ImageGenerationController {
   }
 
   @Patch('image-model-configs/:id')
-  updateImageModelConfig(
+  async updateImageModelConfig(
     @Param('id') id: string,
     @Body() body: UpdateImageModelConfigInput,
   ) {
-    const updated = this.imageGenerationService.updateImageModelConfig(
+    const updated = await this.imageGenerationService.updateImageModelConfig(
       id,
       updateImageModelConfigSchema.parse(body),
     );
@@ -55,9 +57,29 @@ export class ImageGenerationController {
     return updated;
   }
 
+  @Patch('image-model-configs/:id/enabled')
+  async updateImageModelConfigEnabled(
+    @Param('id') id: string,
+    @Body() body: UpdateImageModelConfigEnabledInput,
+  ) {
+    const updated =
+      await this.imageGenerationService.updateImageModelConfigEnabled(
+        id,
+        updateImageModelConfigEnabledSchema.parse(body),
+      );
+
+    if (!updated) {
+      throw new NotFoundException('生图模型配置不存在');
+    }
+
+    return updated;
+  }
+
   @Delete('image-model-configs/:id')
-  deleteImageModelConfig(@Param('id') id: string) {
-    const deleted = this.imageGenerationService.deleteImageModelConfig(id);
+  async deleteImageModelConfig(@Param('id') id: string) {
+    const deleted = await this.imageGenerationService.deleteImageModelConfig(
+      id,
+    );
 
     if (!deleted) {
       throw new NotFoundException('生图模型配置不存在');
