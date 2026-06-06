@@ -1,5 +1,25 @@
 # Pitfalls
 
+## 2026-06-06 第三方生图模型自动选择不能照搬同一套请求体
+
+- 问题：`gpt-image-2-beta` 与 `gpt-image-2` 虽然属于同一来源能力，但支持参数不同；beta 场景如果继续发送 `quality`、多图 `n` 或正式模型专用参数，容易触发第三方参数错误。另一个常见错误是把前端本地 base64 参考图直接塞给要求公网 `image_urls` 的第三方接口。
+- 处理：模型分支由后端根据任务参数决定，并让任务历史记录真实模型名；`gpt-image-2-beta` 只发送该模型支持的固定参数。第三方要求公网图片 URL 时，不能把本地 data URL 当作 URL 发送，应先明确拒绝或等后续接入可公网访问的图片托管。
+
+## 2026-06-06 provider 错误日志不要把 JSON 响应体包成字符串
+
+- 问题：第三方返回 JSON 字符串时，如果直接把它塞进 `response` 字段再整体 `JSON.stringify`，日志会变成一行并带大量转义，例如 `response:"{\"error\":...}"`，排查错误消息很不方便。
+- 处理：provider 错误日志应先尝试解析字符串形式的 JSON 响应体，再用 `JSON.stringify(payload, null, 2)` 输出多行缩进格式；继续保留 API key、图片 base64、上传图片内容等敏感字段脱敏。
+
+## 2026-06-05 生图 provider 不应过度抽象为兼容协议中间层
+
+- 问题：为了减少重复，把 OpenAI 和 OneTopAI 这类相似接口合并到 `callOpenAiImagesCompatible` 会让 URL、path、headers、请求体差异藏在参数里。来源越多时，阅读者需要在分发方法、兼容方法和参数之间来回跳，文件反而更复杂。
+- 处理：每个来源在 `image-generation.providers.ts` 中保留独立完整的请求方法。允许重复写 URL、文生图/图生图分支、headers 和请求体；只保留纯工具 helper，例如错误转换、data URL 解析、URL 拼接和响应图片提取。
+
+## 2026-06-05 生图 provider 配置不要拆散到顶部常量和裸字符串 case
+
+- 问题：即使每个来源有独立方法，如果把各厂家的 base URL 放在文件顶部常量区，或者在 `generate` 中继续写裸字符串 `case`，来源配置仍然被拆散，新增来源时也容易漏改 shared 的来源定义。
+- 处理：每个厂家的固定 base URL 直接写在对应 provider 方法内部；来源类型统一由 shared 的 `ImageProviderTypeEnum` 维护，后端分发和关键默认值都引用枚举成员。
+
 ## 2026-06-05 测试 provider 错误日志不要打印过多任务上下文
 
 - 问题：为了调试真实生图请求，失败日志一开始同时打印了 job/config/provider/model/尺寸等上下文，信息过多，干扰测试时查看第三方接口实际返回内容。

@@ -10,22 +10,27 @@ import type {
   UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from '@ai-image-codexu/shared';
+import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/maskSecret';
 import { decryptSecret, encryptSecret } from '../../common/utils/secretCrypto';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
-import { ImageProviderDispatcher } from './image-generation.providers';
+import {
+  ImageProviderDispatcher,
+  resolveAiCodeWithModelName,
+} from './image-generation.providers';
 
 /**
  * 返回当前时间的 ISO 字符串，供内存任务状态更新时间使用。
  */
 const now = () => new Date().toISOString();
 const defaultModelNames: Record<ImageProviderType, string> = {
-  openai: 'gpt-image-2',
-  google: 'gemini-3.1-flash-image',
-  onetopai: 'gpt-image-2',
-  'image-youyu': 'image-youyu',
+  [ImageProviderTypeEnum.OpenAI]: 'gpt-image-2',
+  [ImageProviderTypeEnum.Google]: 'gemini-3.1-flash-image',
+  [ImageProviderTypeEnum.OneTopAI]: 'gpt-image-2',
+  [ImageProviderTypeEnum.ImageYouyu]: 'image-youyu',
+  [ImageProviderTypeEnum.AiCodeWith]: 'gpt-image-2',
 };
 
 @Injectable()
@@ -153,7 +158,7 @@ export class ImageGenerationService {
     }
 
     const timestamp = now();
-    const modelName = resolveModelName(config);
+    const modelName = resolveModelName(config, input);
     const job: ImageJob = {
       id: crypto.randomUUID(),
       configId: config.id,
@@ -254,7 +259,14 @@ export class ImageGenerationService {
 /**
  * 根据配置 override 或来源默认值决定任务实际记录的模型名。
  */
-function resolveModelName(config: ImageModelConfigEntity) {
+function resolveModelName(
+  config: ImageModelConfigEntity,
+  input: Pick<CreateImageJobInput, 'resolution' | 'quantity'>,
+) {
+  if (config.providerType === ImageProviderTypeEnum.AiCodeWith) {
+    return resolveAiCodeWithModelName(input);
+  }
+
   return config.modelNameOverride || defaultModelNames[config.providerType];
 }
 

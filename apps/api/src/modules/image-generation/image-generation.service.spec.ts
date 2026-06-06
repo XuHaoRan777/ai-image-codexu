@@ -1,4 +1,5 @@
 import type { Repository } from 'typeorm';
+import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import { decryptSecret } from '../../common/utils/secretCrypto';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
@@ -43,7 +44,7 @@ describe('ImageGenerationService', () => {
   it('creates and updates image model configs with encrypted API keys', async () => {
     const created = await service.createImageModelConfig({
       name: 'custom',
-      providerType: 'onetopai',
+      providerType: ImageProviderTypeEnum.OneTopAI,
       apiKey: 'sk-test-secret',
       modelNameOverride: 'gpt-image-2',
       enabled: true,
@@ -75,7 +76,7 @@ describe('ImageGenerationService', () => {
   it('updates image model config enabled state only', async () => {
     const created = await service.createImageModelConfig({
       name: 'custom',
-      providerType: 'openai',
+      providerType: ImageProviderTypeEnum.OpenAI,
       apiKey: 'sk-test-secret',
       modelNameOverride: 'gpt-image-2',
       enabled: true,
@@ -99,7 +100,7 @@ describe('ImageGenerationService', () => {
   it('creates image jobs with selected config', async () => {
     const config = await service.createImageModelConfig({
       name: 'custom',
-      providerType: 'onetopai',
+      providerType: ImageProviderTypeEnum.OneTopAI,
       apiKey: 'sk-test-secret',
       modelNameOverride: 'gpt-image-2',
       enabled: true,
@@ -127,7 +128,63 @@ describe('ImageGenerationService', () => {
     expect(updated?.imageUrl).toBe(`/api/images/generated/${job.id}-1.png`);
     expect(dispatcher.generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerType: 'onetopai',
+        providerType: ImageProviderTypeEnum.OneTopAI,
+        modelName: 'gpt-image-2',
+      }),
+    );
+  });
+
+  it('records AiCodeWith beta model for 1k single image jobs', async () => {
+    const config = await service.createImageModelConfig({
+      name: 'aicodewith',
+      providerType: ImageProviderTypeEnum.AiCodeWith,
+      apiKey: 'sk-test-secret',
+      modelNameOverride: 'ignored-model',
+      enabled: true,
+    });
+    const job = await service.createImageJob({
+      configId: config.id,
+      prompt: 'test prompt',
+      aspectRatio: '1:1',
+      resolution: '1k',
+      quantity: 1,
+    });
+
+    expect(job.modelName).toBe('gpt-image-2-beta');
+
+    await jest.runAllTimersAsync();
+
+    expect(dispatcher.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerType: ImageProviderTypeEnum.AiCodeWith,
+        modelName: 'gpt-image-2-beta',
+      }),
+    );
+  });
+
+  it('records AiCodeWith gpt-image-2 model for non-beta image jobs', async () => {
+    const config = await service.createImageModelConfig({
+      name: 'aicodewith',
+      providerType: ImageProviderTypeEnum.AiCodeWith,
+      apiKey: 'sk-test-secret',
+      modelNameOverride: 'ignored-model',
+      enabled: true,
+    });
+    const job = await service.createImageJob({
+      configId: config.id,
+      prompt: 'test prompt',
+      aspectRatio: '16:9',
+      resolution: '2k',
+      quantity: 2,
+    });
+
+    expect(job.modelName).toBe('gpt-image-2');
+
+    await jest.runAllTimersAsync();
+
+    expect(dispatcher.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerType: ImageProviderTypeEnum.AiCodeWith,
         modelName: 'gpt-image-2',
       }),
     );
@@ -139,7 +196,7 @@ describe('ImageGenerationService', () => {
       .mockRejectedValueOnce(new Error('provider failed'));
     const config = await service.createImageModelConfig({
       name: 'custom',
-      providerType: 'openai',
+      providerType: ImageProviderTypeEnum.OpenAI,
       apiKey: 'sk-test-secret',
       modelNameOverride: 'gpt-image-2',
       enabled: true,

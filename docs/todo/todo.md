@@ -2,6 +2,10 @@
 
 ## 已完成
 
+- [x] 2026-06-06 新增 AiCodeWith 生图来源，接入异步任务轮询，并按分辨率/数量自动选择 `gpt-image-2-beta` 或 `gpt-image-2` 请求参数。
+- [x] 2026-06-06 将生图 provider 请求超时和前端任务轮询窗口延长至 5 分钟，并将 provider 错误日志改为多行格式化 JSON。
+- [x] 2026-06-05 shared 新增 `ImageProviderTypeEnum`，后端 provider 分发改用枚举 case，并将各来源 base URL 内联到对应方法。
+- [x] 2026-06-05 重构生图 provider 分发文件，移除 OpenAI-compatible 中间方法，让每个来源保留独立完整请求配置。
 - [x] 2026-06-05 为后端生产源码中的 controller、service、provider、公共过滤器/拦截器和工具方法补充方法级注释。
 - [x] 2026-06-05 新增 image-youyu 生图来源，后端接入固定文生图/图生图接口且请求体不发送 `model` 字段。
 - [x] 2026-06-05 后端生图 provider 请求失败时仅打印第三方接口返回摘要，便于测试真实请求流程。

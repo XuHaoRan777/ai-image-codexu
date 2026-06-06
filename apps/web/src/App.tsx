@@ -5,6 +5,7 @@ import {
   type CreateImageModelConfigInput,
   type ImageJob,
   type ImageModelConfig,
+  ImageProviderTypeEnum,
   type ImageQuantity,
   type ImageResolution,
   type UpdateImageModelConfigInput,
@@ -40,6 +41,8 @@ const viewHashes: Record<View, string> = {
   history: "#/history",
   settings: "#/settings",
 }
+const imageJobPollIntervalMs = 1500
+const imageJobPollTimeoutMs = 300_000
 
 function readViewFromHash(): View {
   if (typeof window === "undefined") {
@@ -57,7 +60,7 @@ function readViewFromHash(): View {
 
 const initialImageConfigForm: CreateImageModelConfigInput = {
   name: "",
-  providerType: "onetopai",
+  providerType: ImageProviderTypeEnum.OneTopAI,
   apiKey: "",
   modelNameOverride: "",
   enabled: true,
@@ -379,7 +382,9 @@ function App() {
   }
 
   function pollImageJob(id: string, attempt = 0) {
-    const maxAttempts = 80
+    const maxAttempts = Math.ceil(
+      imageJobPollTimeoutMs / imageJobPollIntervalMs,
+    )
 
     window.setTimeout(() => {
       void api
@@ -398,7 +403,7 @@ function App() {
           }
         })
         .catch(() => undefined)
-    }, 1500)
+    }, imageJobPollIntervalMs)
   }
 
   const assistantEnabled = Boolean(assistantConfig?.enabled)

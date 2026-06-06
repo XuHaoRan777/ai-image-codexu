@@ -5,6 +5,7 @@ import type {
   ImageProviderType,
   ImageResolution,
 } from "@ai-image-codexu/shared"
+import { ImageProviderTypeEnum } from "@ai-image-codexu/shared"
 
 export type AssistantFormState = {
   mode: AssistantProviderMode
@@ -20,17 +21,19 @@ export const assistantModeLabels: Record<AssistantProviderMode, string> = {
 }
 
 export const providerTypeLabels: Record<ImageProviderType, string> = {
-  openai: "OpenAI 官方",
-  google: "Google Gemini",
-  onetopai: "OneTopAI",
-  "image-youyu": "image-youyu",
+  [ImageProviderTypeEnum.OpenAI]: "OpenAI 官方",
+  [ImageProviderTypeEnum.Google]: "Google Gemini",
+  [ImageProviderTypeEnum.OneTopAI]: "OneTopAI",
+  [ImageProviderTypeEnum.ImageYouyu]: "image-youyu",
+  [ImageProviderTypeEnum.AiCodeWith]: "AiCodeWith",
 }
 
 export const providerDefaultModelNames: Record<ImageProviderType, string> = {
-  openai: "gpt-image-2",
-  google: "gemini-3.1-flash-image",
-  onetopai: "gpt-image-2",
-  "image-youyu": "image-youyu",
+  [ImageProviderTypeEnum.OpenAI]: "gpt-image-2",
+  [ImageProviderTypeEnum.Google]: "gemini-3.1-flash-image",
+  [ImageProviderTypeEnum.OneTopAI]: "gpt-image-2",
+  [ImageProviderTypeEnum.ImageYouyu]: "image-youyu",
+  [ImageProviderTypeEnum.AiCodeWith]: "gpt-image-2",
 }
 
 export type ReferenceImage = {

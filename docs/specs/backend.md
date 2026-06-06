@@ -48,7 +48,7 @@ apps/api/src/
 
 配置页接口由 shared schema 校验，当前持久化范围：
 
-- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存来源类型、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。模型配置不再维护单独的模型类型，也不维护运营商请求地址；真实请求地址由后端 provider 方法固定，真实请求模型名由 `model_name_override` 或来源类型默认值决定。
+- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存来源类型、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。来源类型由 shared 模块的 `ImageProviderTypeEnum` 统一维护。模型配置不再维护单独的模型类型，也不维护运营商请求地址；真实请求地址由后端 provider 方法固定，真实请求模型名由 `model_name_override` 或来源类型默认值决定。
 - `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
 - `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
 - 配置页不注入默认测试配置；`image_model_config` 空表时 `GET /api/image-model-configs` 返回空列表，配置必须来自真实创建请求或数据库记录。
@@ -72,7 +72,7 @@ apps/api/src/
 
 - `id`：varchar(64) 主键
 - `name`：配置名称
-- `provider_type`：`openai`、`google`、`onetopai` 或 `image-youyu`
+- `provider_type`：`openai`、`google`、`onetopai`、`image-youyu` 或 `aicodewith`
 - `api_key_masked`：掩码密钥，仅用于前端展示
 - `api_key_encrypted`：加密密文，供后端真实请求时解密使用
 - `model_name_override`：模型名 override，可为空
@@ -109,16 +109,18 @@ export class EntityName {
 
 生图真实请求通过 provider adapter 层执行，控制器不直接依赖第三方请求结构：
 
-- 生图 provider：OpenAI 官方、Google Gemini、OneTopAI、image-youyu
+- 生图 provider：OpenAI 官方、Google Gemini、OneTopAI、image-youyu、AiCodeWith
 - 辅助模型 provider：OpenAI 模式、Claude 模式
 - 控制器不直接依赖第三方请求结构
 - 第三方 API key 只在后端使用，前端只接收掩码字段
+- 每个生图来源在 `image-generation.providers.ts` 中维护独立完整的 provider 方法；即使协议字段相似，也不通过“兼容协议中间方法”隐藏 URL、path、headers 和请求体差异。每个来源的固定 base URL 直接写在对应 provider 方法内部，`generate` 分发使用 shared 的 `ImageProviderTypeEnum`，不使用裸字符串 `case`。
 - `POST /api/image-jobs` 创建任务后立即返回 `queued`，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。
-- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。
+- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。AiCodeWith 由后端根据任务参数决定真实请求模型：分辨率为 `1k` 且数量为 1 时使用 `gpt-image-2-beta`，其它情况使用 `gpt-image-2`。
 - OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断；`aspectRatio = auto` 时 `size` 传 `auto`。
 - Google 使用 Gemini 图像生成协议：基础地址写在后端 provider 方法内，后端拼接 `{modelName}:generateContent`，通过 `x-goog-api-key` 鉴权；`aspectRatio = auto` 时不发送固定 `imageConfig.aspectRatio`。
 - image-youyu 使用固定地址 `https://image.youyu.help/v1/images`：无参考图时 `POST /generations` 并发送 JSON，有参考图时 `POST /edits` 并发送 multipart；请求字段只包含 `prompt`、`quality`、`size`、`output_format`、`n`，图生图额外包含 `image`，不发送 `model` 字段。`quality` 将 `0.5k/1k` 映射为 `1k`、`2k/4k` 映射为 `2k`；`size` 将 `auto/1:1` 映射为 `1024x1024`、`4:3/16:9` 映射为 `1536x1024`、`3:4/9:16` 映射为 `1024x1536`；`output_format` 固定为 `png`。
-- provider 请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
+- AiCodeWith 使用固定地址 `https://api.aicodewith.com`：先 `POST /v1/images/generations` 创建生图任务，再每 5 秒 `GET /v1/tasks/{taskId}` 轮询，完成后下载 `result_data[].url` 并保存到本地。请求模型由后端自动判断，使用 `gpt-image-2-beta` 时只发送 `model`、`prompt`、`size`，不发送 `resolution`、`n`、`quality`；使用 `gpt-image-2` 时发送 `model`、`prompt`、`size`、`resolution`、`n`、`quality`。当前前端参考图是 base64 data URL，而 AiCodeWith 图生图要求公网可访问 `image_urls`，因此该来源暂不支持本地参考图上传，后端会在发起第三方请求前返回明确错误。
+- provider 请求超时时间为 5 分钟。请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志使用多行缩进 JSON，若第三方响应体是 JSON 字符串会先解析为对象再输出；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
 - 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。
 
 ## 图片本地路径规划

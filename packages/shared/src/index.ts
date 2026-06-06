@@ -1,10 +1,19 @@
 import { z } from 'zod';
 
+export enum ImageProviderTypeEnum {
+  OpenAI = 'openai',
+  Google = 'google',
+  OneTopAI = 'onetopai',
+  ImageYouyu = 'image-youyu',
+  AiCodeWith = 'aicodewith',
+}
+
 export const imageProviderTypes = [
-  'openai',
-  'google',
-  'onetopai',
-  'image-youyu',
+  ImageProviderTypeEnum.OpenAI,
+  ImageProviderTypeEnum.Google,
+  ImageProviderTypeEnum.OneTopAI,
+  ImageProviderTypeEnum.ImageYouyu,
+  ImageProviderTypeEnum.AiCodeWith,
 ] as const;
 
 export const assistantProviderModes = ['openai', 'claude'] as const;

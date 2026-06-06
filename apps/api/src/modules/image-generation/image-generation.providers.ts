@@ -5,6 +5,7 @@ import type {
   ImageQuantity,
   ImageResolution,
 } from '@ai-image-codexu/shared';
+import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import axios, { AxiosError } from 'axios';
 
 export type ImageProviderRequest = {
@@ -18,11 +19,6 @@ export type ImageProviderRequest = {
   referenceImages?: string[];
 };
 
-const openAiImagesBaseUrl = 'https://api.openai.com/v1/images';
-const oneTopAiImagesBaseUrl = 'https://www.onetopai.asia/v1/images';
-const imageYouyuImagesBaseUrl = 'https://image.youyu.help/v1/images';
-const googleGeminiModelsBaseUrl =
-  'https://generativelanguage.googleapis.com/v1/models';
 const providerLogger = new Logger('ImageProviderDispatcher');
 
 type GeneratedImage = {
@@ -52,6 +48,21 @@ type GeminiImageResponse = {
   }>;
 };
 
+type AiCodeWithCreateTaskResponse = {
+  id?: string;
+  task_id?: string;
+};
+
+type AiCodeWithTaskResponse = {
+  status?: string;
+  progress?: number;
+  result_data?: Array<{
+    url?: string;
+  }>;
+  error?: unknown;
+  message?: unknown;
+};
+
 @Injectable()
 export class ImageProviderDispatcher {
   /**
@@ -59,13 +70,15 @@ export class ImageProviderDispatcher {
    */
   async generate(request: ImageProviderRequest) {
     switch (request.providerType) {
-      case 'openai':
+      case ImageProviderTypeEnum.OpenAI:
         return this.callOpenAi(request);
-      case 'onetopai':
+      case ImageProviderTypeEnum.OneTopAI:
         return this.callOneTopAi(request);
-      case 'image-youyu':
+      case ImageProviderTypeEnum.ImageYouyu:
         return this.callImageYouyu(request);
-      case 'google':
+      case ImageProviderTypeEnum.AiCodeWith:
+        return this.callAiCodeWith(request);
+      case ImageProviderTypeEnum.Google:
         return this.callGoogleGeminiImage(request);
     }
   }
@@ -73,79 +86,11 @@ export class ImageProviderDispatcher {
   /**
    * 调用 OpenAI 官方图片生成接口。
    */
-  private async callOpenAi(request: ImageProviderRequest) {
-    return this.callOpenAiImagesCompatible(request, openAiImagesBaseUrl);
-  }
-
-  /**
-   * 调用 OneTopAI 的 OpenAI Images 兼容接口。
-   */
-  private async callOneTopAi(request: ImageProviderRequest) {
-    return this.callOpenAiImagesCompatible(request, oneTopAiImagesBaseUrl);
-  }
-
-  /**
-   * 调用 image-youyu 图片接口；该来源请求体不发送 model 字段。
-   */
-  private async callImageYouyu(
+  private async callOpenAi(
     request: ImageProviderRequest,
   ): Promise<GeneratedImage[]> {
-    const size = toImageYouyuSize(request.aspectRatio);
-    const quality = toImageYouyuQuality(request.resolution);
+    const baseUrl = 'https://api.openai.com/v1/images';
 
-    if (request.referenceImages?.length) {
-      const form = new FormData();
-      form.set('prompt', request.prompt);
-      form.set('quality', quality);
-      form.set('size', size);
-      form.set('output_format', 'png');
-      form.set('n', String(request.quantity));
-
-      request.referenceImages.forEach((image, index) => {
-        const parsed = parseDataUrl(image);
-        form.append(
-          'image',
-          new Blob([parsed.content], { type: parsed.mimeType }),
-          `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
-        );
-      });
-
-      const response = await postWithProviderError<OpenAiImageResponse>(
-        joinUrl(imageYouyuImagesBaseUrl, 'edits'),
-        form,
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-        },
-      );
-
-      return this.extractOpenAiImages(response);
-    }
-
-    const response = await postWithProviderError<OpenAiImageResponse>(
-      joinUrl(imageYouyuImagesBaseUrl, 'generations'),
-      {
-        prompt: request.prompt,
-        quality,
-        size,
-        output_format: 'png',
-        n: request.quantity,
-      },
-      {
-        Authorization: `Bearer ${request.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    );
-
-    return this.extractOpenAiImages(response);
-  }
-
-  /**
-   * 调用 OpenAI Images 兼容接口，并根据是否有参考图选择 generations 或 edits。
-   */
-  private async callOpenAiImagesCompatible(
-    request: ImageProviderRequest,
-    baseUrl: string,
-  ): Promise<GeneratedImage[]> {
     if (request.referenceImages?.length) {
       const form = new FormData();
       form.set('model', request.modelName);
@@ -170,7 +115,7 @@ export class ImageProviderDispatcher {
         },
       );
 
-      return this.extractOpenAiImages(response);
+      return this.extractOpenAiLikeImages(response);
     }
 
     const response = await postWithProviderError<OpenAiImageResponse>(
@@ -187,7 +132,200 @@ export class ImageProviderDispatcher {
       },
     );
 
-    return this.extractOpenAiImages(response);
+    return this.extractOpenAiLikeImages(response);
+  }
+
+  /**
+   * 调用 OneTopAI 图片生成接口。
+   */
+  private async callOneTopAi(
+    request: ImageProviderRequest,
+  ): Promise<GeneratedImage[]> {
+    const baseUrl = 'https://www.onetopai.asia/v1/images';
+
+    if (request.referenceImages?.length) {
+      const form = new FormData();
+      form.set('model', request.modelName);
+      form.set('prompt', request.prompt);
+      form.set('n', String(request.quantity));
+      form.set('size', toOpenAiSize(request.aspectRatio, request.resolution));
+
+      request.referenceImages.forEach((image, index) => {
+        const parsed = parseDataUrl(image);
+        form.append(
+          'image',
+          new Blob([parsed.content], { type: parsed.mimeType }),
+          `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
+        );
+      });
+
+      const response = await postWithProviderError<OpenAiImageResponse>(
+        joinUrl(baseUrl, 'edits'),
+        form,
+        {
+          Authorization: `Bearer ${request.apiKey}`,
+        },
+      );
+
+      return this.extractOpenAiLikeImages(response);
+    }
+
+    const response = await postWithProviderError<OpenAiImageResponse>(
+      joinUrl(baseUrl, 'generations'),
+      {
+        model: request.modelName,
+        prompt: request.prompt,
+        n: request.quantity,
+        size: toOpenAiSize(request.aspectRatio, request.resolution),
+      },
+      {
+        Authorization: `Bearer ${request.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    );
+
+    return this.extractOpenAiLikeImages(response);
+  }
+
+  /**
+   * 调用 image-youyu 图片接口；该来源请求体不发送 model 字段。
+   */
+  private async callImageYouyu(
+    request: ImageProviderRequest,
+  ): Promise<GeneratedImage[]> {
+    const baseUrl = 'https://image.youyu.help/v1/images';
+    const size = toImageYouyuSize(request.aspectRatio);
+    const quality = toImageYouyuQuality(request.resolution);
+
+    if (request.referenceImages?.length) {
+      const form = new FormData();
+      form.set('prompt', request.prompt);
+      form.set('quality', quality);
+      form.set('size', size);
+      form.set('output_format', 'png');
+      form.set('n', String(request.quantity));
+
+      request.referenceImages.forEach((image, index) => {
+        const parsed = parseDataUrl(image);
+        form.append(
+          'image',
+          new Blob([parsed.content], { type: parsed.mimeType }),
+          `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
+        );
+      });
+
+      const response = await postWithProviderError<OpenAiImageResponse>(
+        joinUrl(baseUrl, 'edits'),
+        form,
+        {
+          Authorization: `Bearer ${request.apiKey}`,
+        },
+      );
+
+      return this.extractOpenAiLikeImages(response);
+    }
+
+    const response = await postWithProviderError<OpenAiImageResponse>(
+      joinUrl(baseUrl, 'generations'),
+      {
+        prompt: request.prompt,
+        quality,
+        size,
+        output_format: 'png',
+        n: request.quantity,
+      },
+      {
+        Authorization: `Bearer ${request.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    );
+
+    return this.extractOpenAiLikeImages(response);
+  }
+
+  /**
+   * 调用 AiCodeWith 图像工作站接口；该来源先创建任务，再轮询任务结果 URL。
+   */
+  private async callAiCodeWith(
+    request: ImageProviderRequest,
+  ): Promise<GeneratedImage[]> {
+    const baseUrl = 'https://api.aicodewith.com';
+    const pollIntervalMs = 5_000;
+    const pollTimeoutMs = 300_000;
+
+    if (request.referenceImages?.length) {
+      throw new BadGatewayException(
+        'AiCodeWith 图生图需要公网可访问 image_urls，当前参考图上传暂不支持',
+      );
+    }
+
+    const model = resolveAiCodeWithModelName(request);
+    const createBody =
+      model === 'gpt-image-2-beta'
+        ? {
+            model,
+            prompt: request.prompt,
+            size: toAiCodeWithSize(request.aspectRatio),
+          }
+        : {
+            model,
+            prompt: request.prompt,
+            size: toAiCodeWithSize(request.aspectRatio),
+            resolution: toAiCodeWithResolution(request.resolution),
+            n: request.quantity,
+            quality: toAiCodeWithQuality(request.resolution),
+          };
+    const createResponse =
+      await postWithProviderError<AiCodeWithCreateTaskResponse>(
+        joinUrl(baseUrl, 'v1/images/generations'),
+        createBody,
+        {
+          Authorization: `Bearer ${request.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      );
+    const taskId = createResponse.id ?? createResponse.task_id;
+
+    if (!taskId) {
+      throw new BadGatewayException('AiCodeWith 生图接口未返回任务 ID');
+    }
+
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt <= pollTimeoutMs) {
+      const task = await getWithProviderError<AiCodeWithTaskResponse>(
+        joinUrl(baseUrl, `v1/tasks/${taskId}`),
+        {
+          Authorization: `Bearer ${request.apiKey}`,
+        },
+      );
+
+      if (task.status === 'completed') {
+        const urls =
+          task.result_data
+            ?.map((item) => item.url)
+            .filter((url): url is string => Boolean(url)) ?? [];
+
+        if (urls.length === 0) {
+          throw new BadGatewayException('AiCodeWith 生图任务未返回图片 URL');
+        }
+
+        return this.extractOpenAiLikeImages({
+          data: urls.map((url) => ({ url })),
+        });
+      }
+
+      if (task.status === 'failed') {
+        logProviderResponsePayload(task);
+        throw new BadGatewayException(
+          extractProviderErrorMessage(task) ?? 'AiCodeWith 生图任务失败',
+        );
+      }
+
+      await delay(pollIntervalMs);
+    }
+
+    throw new BadGatewayException('AiCodeWith 生图任务轮询超时');
   }
 
   /**
@@ -196,6 +334,7 @@ export class ImageProviderDispatcher {
   private async callGoogleGeminiImage(
     request: ImageProviderRequest,
   ): Promise<GeneratedImage[]> {
+    const baseUrl = 'https://generativelanguage.googleapis.com/v1/models';
     const parts: Array<Record<string, unknown>> = [{ text: request.prompt }];
 
     request.referenceImages?.forEach((image) => {
@@ -221,7 +360,7 @@ export class ImageProviderDispatcher {
 
     const response = await postWithProviderError<GeminiImageResponse>(
       joinUrl(
-        googleGeminiModelsBaseUrl,
+        baseUrl,
         `${request.modelName}:generateContent`,
       ),
       {
@@ -262,7 +401,7 @@ export class ImageProviderDispatcher {
   /**
    * 从 OpenAI Images 兼容响应中提取 base64 图片或下载远程图片 URL。
    */
-  private extractOpenAiImages(response: OpenAiImageResponse) {
+  private extractOpenAiLikeImages(response: OpenAiImageResponse) {
     const images: OpenAiExtractedImage[] = [];
 
     response.data?.forEach((item) => {
@@ -313,25 +452,13 @@ async function postWithProviderError<T>(
   try {
     const response = await axios.post<T>(url, data, {
       headers,
-      timeout: 120_000,
+      timeout: 300_000,
     });
 
     return response.data;
   } catch (error) {
     if (error instanceof AxiosError) {
-      const message =
-        extractProviderErrorMessage(error.response?.data) ||
-        error.message ||
-        '外部生图接口请求失败';
-      providerLogger.error(
-        JSON.stringify({
-          message: 'Provider image response',
-          status: error.response?.status,
-          response: summarizeProviderPayload(error.response?.data),
-        }),
-      );
-
-      throw new BadGatewayException(message);
+      throw toProviderGatewayException(error);
     }
 
     throw error;
@@ -339,19 +466,94 @@ async function postWithProviderError<T>(
 }
 
 /**
- * 将第三方响应体裁剪并脱敏，供错误日志记录。
+ * 发起 provider GET 请求，并复用第三方错误格式化逻辑。
  */
-function summarizeProviderPayload(payload: unknown) {
+async function getWithProviderError<T>(
+  url: string,
+  headers: Record<string, string>,
+) {
+  try {
+    const response = await axios.get<T>(url, {
+      headers,
+      timeout: 300_000,
+    });
+
+    return response.data;
+  } catch (error) {
+    if (error instanceof AxiosError) {
+      throw toProviderGatewayException(error);
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * 将 axios provider 错误转换为后端网关错误，并输出格式化后的第三方响应摘要。
+ */
+function toProviderGatewayException(error: AxiosError) {
+  const message =
+    extractProviderErrorMessage(error.response?.data) ||
+    error.message ||
+    '外部生图接口请求失败';
+  logProviderResponsePayload(error.response?.data, error.response?.status);
+
+  return new BadGatewayException(message);
+}
+
+/**
+ * 仅打印第三方接口返回摘要，避免混入任务上下文或敏感请求内容。
+ */
+function logProviderResponsePayload(payload: unknown, status?: number) {
+  providerLogger.error(
+    JSON.stringify(
+      {
+        message: 'Provider image response',
+        status,
+        response: toProviderLogPayload(payload),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+/**
+ * 将第三方响应体转换为可读、可脱敏的日志结构。
+ */
+function toProviderLogPayload(payload: unknown) {
   if (payload === undefined || payload === null) {
     return undefined;
   }
 
-  const text =
-    typeof payload === 'string'
-      ? payload
-      : JSON.stringify(payload, redactSensitivePayload);
+  if (typeof payload === 'string') {
+    const parsed = parseJsonPayload(payload);
 
-  return text.length > 2000 ? `${text.slice(0, 2000)}...` : text;
+    return parsed === undefined
+      ? truncateProviderText(payload)
+      : toProviderLogPayload(parsed);
+  }
+
+  if (typeof payload === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(payload, redactSensitivePayload));
+    } catch {
+      return '[unserializable provider payload]';
+    }
+  }
+
+  return payload;
+}
+
+/**
+ * 尝试解析字符串形式的 JSON 响应体。
+ */
+function parseJsonPayload(payload: string) {
+  try {
+    return JSON.parse(payload) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -362,13 +564,32 @@ function redactSensitivePayload(key: string, value: unknown) {
     return '[redacted]';
   }
 
+  if (typeof value === 'string') {
+    return truncateProviderText(value);
+  }
+
   return value;
+}
+
+/**
+ * 裁剪过长的 provider 文本，避免日志输出过大。
+ */
+function truncateProviderText(value: string) {
+  return value.length > 2000 ? `${value.slice(0, 2000)}...` : value;
 }
 
 /**
  * 从第三方错误响应中解析最有用的错误消息。
  */
 function extractProviderErrorMessage(payload: unknown) {
+  if (typeof payload === 'string') {
+    const parsed = parseJsonPayload(payload);
+
+    return parsed === undefined
+      ? undefined
+      : extractProviderErrorMessage(parsed);
+  }
+
   if (!payload || typeof payload !== 'object') {
     return undefined;
   }
@@ -495,4 +716,73 @@ function toImageYouyuSize(aspectRatio: AspectRatio) {
     case '1:1':
       return '1024x1024';
   }
+}
+
+type AiCodeWithModelSelectionInput = {
+  resolution: ImageResolution;
+  quantity: number;
+};
+
+/**
+ * 判断 AiCodeWith 是否应使用 gpt-image-2-beta 快速模型。
+ */
+function shouldUseAiCodeWithBetaModel(request: AiCodeWithModelSelectionInput) {
+  return request.resolution === '1k' && request.quantity === 1;
+}
+
+/**
+ * 根据当前请求参数决定 AiCodeWith 实际请求模型。
+ */
+export function resolveAiCodeWithModelName(
+  request: AiCodeWithModelSelectionInput,
+) {
+  return shouldUseAiCodeWithBetaModel(request)
+    ? 'gpt-image-2-beta'
+    : 'gpt-image-2';
+}
+
+/**
+ * 将前端尺寸映射为 AiCodeWith 支持的 size 参数。
+ */
+function toAiCodeWithSize(aspectRatio: AspectRatio) {
+  return aspectRatio;
+}
+
+/**
+ * 将前端分辨率映射为 AiCodeWith 支持的 resolution 参数。
+ */
+function toAiCodeWithResolution(resolution: ImageResolution) {
+  switch (resolution) {
+    case '0.5k':
+    case '1k':
+      return '1K';
+    case '2k':
+      return '2K';
+    case '4k':
+      return '4K';
+  }
+}
+
+/**
+ * 将前端分辨率映射为 AiCodeWith 支持的 quality 参数。
+ */
+function toAiCodeWithQuality(resolution: ImageResolution) {
+  switch (resolution) {
+    case '0.5k':
+      return 'low';
+    case '1k':
+      return 'medium';
+    case '2k':
+    case '4k':
+      return 'high';
+  }
+}
+
+/**
+ * 等待指定毫秒数，用于异步 provider 任务轮询。
+ */
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
