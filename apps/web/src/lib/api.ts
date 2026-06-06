@@ -107,5 +107,6 @@ export const api = {
       method: "POST",
       data: input,
     }),
+  listImageJobs: () => request<ImageJob[]>("/image-jobs"),
   getImageJob: (id: string) => request<ImageJob>(`/image-jobs/${id}`),
 }

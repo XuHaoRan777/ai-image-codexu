@@ -168,7 +168,6 @@ export const imageJobSchema = z.object({
   aspectRatio: z.enum(aspectRatios),
   resolution: z.enum(imageResolutions),
   quantity: z.number().int().min(1).max(4),
-  referenceImages: z.array(z.string()).max(6).optional(),
   status: z.enum(imageJobStatuses),
   imageUrl: z.string().optional(),
   imageUrls: z.array(z.string()).optional(),

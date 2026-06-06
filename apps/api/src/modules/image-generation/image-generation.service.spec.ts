@@ -1,6 +1,7 @@
 import type { Repository } from 'typeorm';
 import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import { decryptSecret } from '../../common/utils/secretCrypto';
+import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
 import { ImageProviderDispatcher } from './image-generation.providers';
@@ -8,12 +9,14 @@ import { ImageGenerationService } from './image-generation.service';
 
 describe('ImageGenerationService', () => {
   let modelRepository: Repository<ImageModelConfigEntity>;
+  let jobRepository: Repository<ImageJobEntity>;
   let dispatcher: ImageProviderDispatcher;
   let service: ImageGenerationService;
 
   beforeEach(() => {
     jest.useFakeTimers();
     modelRepository = createMemoryRepository<ImageModelConfigEntity>();
+    jobRepository = createMemoryRepository<ImageJobEntity>();
     dispatcher = {
       generate: jest.fn(async () => [
         {
@@ -24,6 +27,7 @@ describe('ImageGenerationService', () => {
     } as unknown as ImageProviderDispatcher;
     service = new ImageGenerationService(
       modelRepository,
+      jobRepository,
       {
         saveImage: async (relativePath: string) => `/api/images/${relativePath}`,
         toPublicUrl: (relativePath: string) => `/api/images/${relativePath}`,
@@ -120,12 +124,24 @@ describe('ImageGenerationService', () => {
     expect(job.aspectRatio).toBe('auto');
     expect(job.resolution).toBe('1k');
     expect(job.quantity).toBe(1);
+    await expect(jobRepository.findOneBy({ id: job.id })).resolves.toMatchObject({
+      status: 'queued',
+      imageUrl: null,
+      imageUrls: null,
+    });
 
     await jest.runAllTimersAsync();
 
-    const updated = service.getImageJob(job.id);
+    const updated = await service.getImageJob(job.id);
     expect(updated?.status).toBe('succeeded');
     expect(updated?.imageUrl).toBe(`/api/images/generated/${job.id}-1.png`);
+    await expect(service.listImageJobs()).resolves.toEqual([
+      expect.objectContaining({
+        id: job.id,
+        status: 'succeeded',
+        imageUrl: `/api/images/generated/${job.id}-1.png`,
+      }),
+    ]);
     expect(dispatcher.generate).toHaveBeenCalledWith(
       expect.objectContaining({
         providerType: ImageProviderTypeEnum.OneTopAI,
@@ -211,7 +227,7 @@ describe('ImageGenerationService', () => {
 
     await jest.runAllTimersAsync();
 
-    const updated = service.getImageJob(job.id);
+    const updated = await service.getImageJob(job.id);
     expect(updated?.status).toBe('failed');
     expect(updated?.errorMessage).toBe('provider failed');
   });

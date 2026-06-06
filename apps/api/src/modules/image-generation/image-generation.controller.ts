@@ -116,12 +116,20 @@ export class ImageGenerationController {
     );
   }
 
+  @Get('image-jobs')
+  /**
+   * 查询持久化生图任务历史列表。
+   */
+  listImageJobs() {
+    return this.imageGenerationService.listImageJobs();
+  }
+
   @Get('image-jobs/:id')
   /**
    * 查询指定生图任务。
    */
-  getImageJob(@Param('id') id: string) {
-    const job = this.imageGenerationService.getImageJob(id);
+  async getImageJob(@Param('id') id: string) {
+    const job = await this.imageGenerationService.getImageJob(id);
 
     if (!job) {
       throw new NotFoundException('生图任务不存在');

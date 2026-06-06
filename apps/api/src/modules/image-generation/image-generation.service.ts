@@ -4,6 +4,7 @@ import type {
   CreateImageJobInput,
   CreateImageModelConfigInput,
   ImageJob,
+  ImageJobStatus,
   ImageModelConfig,
   ImageProviderType,
   ImageQuantity,
@@ -14,6 +15,7 @@ import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/maskSecret';
 import { decryptSecret, encryptSecret } from '../../common/utils/secretCrypto';
+import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
 import {
@@ -21,10 +23,6 @@ import {
   resolveAiCodeWithModelName,
 } from './image-generation.providers';
 
-/**
- * 返回当前时间的 ISO 字符串，供内存任务状态更新时间使用。
- */
-const now = () => new Date().toISOString();
 const defaultModelNames: Record<ImageProviderType, string> = {
   [ImageProviderTypeEnum.OpenAI]: 'gpt-image-2',
   [ImageProviderTypeEnum.Google]: 'gemini-3.1-flash-image',
@@ -35,14 +33,14 @@ const defaultModelNames: Record<ImageProviderType, string> = {
 
 @Injectable()
 export class ImageGenerationService {
-  private imageJobs: ImageJob[] = [];
-
   /**
    * 注入模型配置仓储、图片存储服务和 provider 分发器。
    */
   constructor(
     @InjectRepository(ImageModelConfigEntity)
     private readonly imageModelConfigRepository: Repository<ImageModelConfigEntity>,
+    @InjectRepository(ImageJobEntity)
+    private readonly imageJobRepository: Repository<ImageJobEntity>,
     private readonly imageStorageService: ImageStorageService,
     private readonly imageProviderDispatcher: ImageProviderDispatcher,
   ) {}
@@ -145,7 +143,7 @@ export class ImageGenerationService {
   }
 
   /**
-   * 创建内存生图任务，并异步启动真实生图流程。
+   * 创建持久化生图任务，并异步启动真实生图流程。
    */
   async createImageJob(input: CreateImageJobInput) {
     const config = await this.imageModelConfigRepository.findOneBy({
@@ -157,9 +155,9 @@ export class ImageGenerationService {
       throw new NotFoundException('可用的生图模型配置不存在');
     }
 
-    const timestamp = now();
+    const timestamp = new Date();
     const modelName = resolveModelName(config, input);
-    const job: ImageJob = {
+    const job = this.imageJobRepository.create({
       id: crypto.randomUUID(),
       configId: config.id,
       configName: config.name,
@@ -169,34 +167,60 @@ export class ImageGenerationService {
       aspectRatio: input.aspectRatio,
       resolution: input.resolution,
       quantity: input.quantity,
-      referenceImages: input.referenceImages,
       status: 'queued',
+      imageUrl: null,
+      imageUrls: null,
+      errorMessage: null,
       createdAt: timestamp,
       updatedAt: timestamp,
-    };
-
-    this.imageJobs.unshift(job);
+    });
+    const savedJob = await this.imageJobRepository.save(job);
 
     setTimeout(() => {
-      void this.runImageJob(job, config);
+      void this.runImageJob(savedJob.id, input.referenceImages, config);
     }, 0);
 
-    return job;
+    return this.toImageJob(savedJob);
   }
 
   /**
-   * 从当前进程内存中查询指定生图任务。
+   * 从数据库查询持久化生图任务历史列表。
    */
-  getImageJob(id: string) {
-    return this.imageJobs.find((job) => job.id === id);
+  async listImageJobs() {
+    const jobs = await this.imageJobRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    return jobs.map((job) => this.toImageJob(job));
+  }
+
+  /**
+   * 从数据库查询指定生图任务。
+   */
+  async getImageJob(id: string) {
+    const job = await this.imageJobRepository.findOneBy({ id });
+
+    return job ? this.toImageJob(job) : null;
   }
 
   /**
    * 执行真实 provider 请求，并把生成图片保存到本地存储。
    */
-  private async runImageJob(job: ImageJob, config: ImageModelConfigEntity) {
-    job.status = 'running';
-    job.updatedAt = now();
+  private async runImageJob(
+    jobId: string,
+    referenceImages: string[] | undefined,
+    config: ImageModelConfigEntity,
+  ) {
+    const job = await this.imageJobRepository.findOneBy({ id: jobId });
+
+    if (!job) {
+      return;
+    }
+
+    await this.updateImageJob(job, {
+      status: 'running',
+      updatedAt: new Date(),
+    });
 
     try {
       const apiKey = decryptSecret(config.apiKeyEncrypted);
@@ -213,7 +237,7 @@ export class ImageGenerationService {
         aspectRatio: job.aspectRatio,
         resolution: job.resolution,
         quantity: job.quantity as ImageQuantity,
-        referenceImages: job.referenceImages,
+        referenceImages,
       });
 
       const imageUrls = await Promise.all(
@@ -227,15 +251,20 @@ export class ImageGenerationService {
         ),
       );
 
-      job.status = 'succeeded';
-      job.imageUrl = imageUrls[0];
-      job.imageUrls = imageUrls;
-      job.updatedAt = now();
+      await this.updateImageJob(job, {
+        status: 'succeeded',
+        imageUrl: imageUrls[0],
+        imageUrls,
+        errorMessage: null,
+        updatedAt: new Date(),
+      });
     } catch (error) {
-      job.status = 'failed';
-      job.errorMessage =
-        error instanceof Error ? error.message : '生图任务执行失败';
-      job.updatedAt = now();
+      await this.updateImageJob(job, {
+        status: 'failed',
+        errorMessage:
+          error instanceof Error ? error.message : '生图任务执行失败',
+        updatedAt: new Date(),
+      });
     }
   }
 
@@ -253,6 +282,46 @@ export class ImageGenerationService {
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * 将数据库任务实体转换为前端可接收的生图任务结构。
+   */
+  private toImageJob(entity: ImageJobEntity): ImageJob {
+    return {
+      id: entity.id,
+      configId: entity.configId,
+      configName: entity.configName,
+      providerType: entity.providerType,
+      modelName: entity.modelName,
+      prompt: entity.prompt,
+      aspectRatio: entity.aspectRatio,
+      resolution: entity.resolution,
+      quantity: entity.quantity,
+      status: entity.status,
+      imageUrl: entity.imageUrl ?? undefined,
+      imageUrls: entity.imageUrls ?? undefined,
+      errorMessage: entity.errorMessage ?? undefined,
+      createdAt: entity.createdAt.toISOString(),
+      updatedAt: entity.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * 更新生图任务实体并立即持久化到数据库。
+   */
+  private async updateImageJob(
+    job: ImageJobEntity,
+    input: Partial<{
+      status: ImageJobStatus;
+      imageUrl: string | null;
+      imageUrls: string[] | null;
+      errorMessage: string | null;
+      updatedAt: Date;
+    }>,
+  ) {
+    Object.assign(job, input);
+    await this.imageJobRepository.save(job);
   }
 }
 

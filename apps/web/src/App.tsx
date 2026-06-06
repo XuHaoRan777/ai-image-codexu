@@ -135,6 +135,14 @@ function App() {
     }
   }
 
+  async function refreshHistoryJobs() {
+    const jobs = await api.listImageJobs()
+    setHistoryJobs(jobs)
+    setSelectedHistoryJobId((currentId) =>
+      jobs.some((job) => job.id === currentId) ? currentId : "",
+    )
+  }
+
   function rememberJob(job: ImageJob) {
     setHistoryJobs((current) => [
       job,
@@ -195,9 +203,10 @@ function App() {
 
     async function loadInitialConfigs() {
       try {
-        const [configs, assistant] = await Promise.all([
+        const [configs, assistant, jobs] = await Promise.all([
           api.listImageModelConfigs(),
           api.getAssistantConfig(),
+          api.listImageJobs(),
         ])
 
         if (ignore) {
@@ -216,6 +225,7 @@ function App() {
         setSelectedConfigId(
           configs.find((item) => item.enabled)?.id ?? "",
         )
+        setHistoryJobs(jobs)
       } catch (error) {
         if (!ignore) {
           toast.error(error instanceof Error ? error.message : "加载配置失败")
@@ -445,7 +455,12 @@ function App() {
               icon={History}
               label="历史"
               tone="cyan"
-              onClick={() => navigateToView("history")}
+              onClick={() => {
+                navigateToView("history")
+                void refreshHistoryJobs().catch((error: Error) =>
+                  toast.error(error.message),
+                )
+              }}
             />
             <NavButton
               active={view === "settings"}

@@ -2,6 +2,7 @@
 
 ## 已完成
 
+- [x] 2026-06-06 将生图任务记录改为 `image_job` 表持久化，新增后端历史列表接口，并通过 Vite `/api` 代理修复开发环境图片加载路径。
 - [x] 2026-06-06 新增 AiCodeWith 生图来源，接入异步任务轮询，并按分辨率/数量自动选择 `gpt-image-2-beta` 或 `gpt-image-2` 请求参数。
 - [x] 2026-06-06 将生图 provider 请求超时和前端任务轮询窗口延长至 5 分钟，并将 provider 错误日志改为多行格式化 JSON。
 - [x] 2026-06-05 shared 新增 `ImageProviderTypeEnum`，后端 provider 分发改用枚举 case，并将各来源 base URL 内联到对应方法。
