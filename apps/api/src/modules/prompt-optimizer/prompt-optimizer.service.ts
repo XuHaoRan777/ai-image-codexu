@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type {
   AssistantModelConfig,
@@ -6,12 +10,38 @@ import type {
   PromptOptimizeResponse,
   UpdateAssistantModelConfigInput,
 } from '@ai-image-codexu/shared';
+import axios, { AxiosError } from 'axios';
 import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/maskSecret';
-import { encryptSecret } from '../../common/utils/secretCrypto';
+import { decryptSecret, encryptSecret } from '../../common/utils/secretCrypto';
 import { AssistantModelConfigEntity } from '../../entity/AssistantModelConfig';
 
 const assistantConfigId = 'default';
+const assistantRequestTimeoutMs = 120_000;
+const promptOptimizerSystemPrompt = [
+  '你是一个 AI 生图提示词优化器，目标是把用户原始提示词改写成更清晰、可执行、适合图像生成模型理解的版本。',
+  '必须以用户原意为最高优先级：保留主体、动作、场景、风格、情绪、构图意图和任何明确限制；不要改变主题、身份、数量、时代、关系、视角或故事含义。',
+  '可以在不违背原意的前提下补充画面细节，包括主体外观、环境、构图、镜头焦段、景别、光线、色彩、材质、质感、画面层次、风格化方向和质量描述。',
+  '如果用户描述很短，只做合理的视觉扩写；不要主动加入用户没有暗示的具体品牌、人物、文字、Logo、地点、暴力、色情、政治内容或复杂剧情。',
+  '将含糊表达转为具体可视化描述，去除相互冲突或不适合生图的表述；保留用户明确要求的语言、文字内容和比例、尺寸、数量等参数。',
+  '必要时加入简短负面约束，如避免水印、乱码文字、畸形结构、低清晰度、过度锐化、额外肢体、主体偏离。',
+  '只输出优化后的提示词正文，不要解释、不要分点、不要添加标题、不要包裹引号。',
+].join('\n');
+
+type OpenAiChatResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+};
+
+type ClaudeMessageResponse = {
+  content?: Array<{
+    type?: string;
+    text?: string;
+  }>;
+};
 
 @Injectable()
 export class PromptOptimizerService {
@@ -37,7 +67,7 @@ export class PromptOptimizerService {
     const existing = await this.ensureAssistantConfig();
 
     existing.mode = input.mode;
-    existing.baseUrl = input.baseUrl;
+    existing.url = input.url;
     if (input.apiKey !== undefined && input.apiKey.trim() !== '') {
       const apiKey = input.apiKey.trim();
       existing.apiKeyMasked = maskSecret(apiKey) ?? null;
@@ -53,20 +83,143 @@ export class PromptOptimizerService {
   }
 
   /**
-   * 根据辅助模型启用状态返回优化后的提示词文本。
+   * 使用已启用的辅助模型配置调用第三方接口优化提示词。
    */
   async optimizePrompt(
     input: PromptOptimizeRequest,
   ): Promise<PromptOptimizeResponse> {
     const assistantConfig = await this.ensureAssistantConfig();
-    const optimizedPrompt = assistantConfig.enabled
-      ? `${input.prompt.trim()}\n\n画面要求：主体清晰，构图稳定，光影层次明确，细节自然，避免多余文字、水印和畸形结构。`
-      : input.prompt.trim();
+    const trimmedPrompt = input.prompt.trim();
+    const optimizedPrompt = await this.callAssistantProvider(
+      assistantConfig,
+      trimmedPrompt,
+    );
 
     return {
       originalPrompt: input.prompt,
       optimizedPrompt,
     };
+  }
+
+  /**
+   * 根据辅助模型配置调用真实第三方模型优化提示词。
+   */
+  private async callAssistantProvider(
+    config: AssistantModelConfigEntity,
+    prompt: string,
+  ) {
+    if (!config.enabled) {
+      throw new BadRequestException('辅助模型未启用');
+    }
+    if (!config.modelName.trim()) {
+      throw new BadRequestException('辅助模型缺少模型名称');
+    }
+    if (!config.url.trim()) {
+      throw new BadRequestException('辅助模型缺少请求地址');
+    }
+
+    const apiKey = decryptSecret(config.apiKeyEncrypted);
+
+    if (!apiKey) {
+      throw new BadRequestException('辅助模型缺少 API key');
+    }
+
+    try {
+      switch (config.mode) {
+        case 'openai':
+          return await this.callOpenAiAssistant(config, apiKey, prompt);
+        case 'claude':
+          return await this.callClaudeAssistant(config, apiKey, prompt);
+      }
+    } catch (error) {
+      throw new BadGatewayException(
+        `提示词优化请求失败：${toProviderErrorMessage(error)}`,
+      );
+    }
+  }
+
+  /**
+   * 使用 OpenAI Chat Completions 协议优化提示词。
+   */
+  private async callOpenAiAssistant(
+    config: AssistantModelConfigEntity,
+    apiKey: string,
+    prompt: string,
+  ) {
+    const response = await axios.post<OpenAiChatResponse>(
+      config.url.trim(),
+      {
+        model: config.modelName,
+        messages: [
+          {
+            role: 'system',
+            content: promptOptimizerSystemPrompt,
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.6,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: assistantRequestTimeoutMs,
+      },
+    );
+    const optimizedPrompt =
+      response.data.choices?.[0]?.message?.content?.trim();
+
+    if (!optimizedPrompt) {
+      throw new Error('辅助模型返回内容为空');
+    }
+
+    return optimizedPrompt;
+  }
+
+  /**
+   * 使用 Claude Messages 协议优化提示词。
+   */
+  private async callClaudeAssistant(
+    config: AssistantModelConfigEntity,
+    apiKey: string,
+    prompt: string,
+  ) {
+    const response = await axios.post<ClaudeMessageResponse>(
+      config.url.trim(),
+      {
+        model: config.modelName,
+        max_tokens: 1800,
+        system: promptOptimizerSystemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.6,
+      },
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        timeout: assistantRequestTimeoutMs,
+      },
+    );
+    const optimizedPrompt = response.data.content
+      ?.find((item) => item.type === 'text' && item.text)
+      ?.text?.trim();
+
+    if (!optimizedPrompt) {
+      throw new Error('辅助模型返回内容为空');
+    }
+
+    return optimizedPrompt;
   }
 
   /**
@@ -84,7 +237,7 @@ export class PromptOptimizerService {
     const created = this.assistantConfigRepository.create({
       id: assistantConfigId,
       mode: 'openai',
-      baseUrl: '',
+      url: '',
       apiKeyMasked: null,
       apiKeyEncrypted: null,
       modelName: '',
@@ -104,11 +257,53 @@ export class PromptOptimizerService {
   ): AssistantModelConfig {
     return {
       mode: entity.mode,
-      baseUrl: entity.baseUrl,
+      url: entity.url,
       apiKeyMasked: entity.apiKeyMasked ?? undefined,
       modelName: entity.modelName,
       enabled: entity.enabled,
       updatedAt: entity.updatedAt.toISOString(),
     };
   }
+}
+
+/**
+ * 将第三方请求错误转换为可展示摘要，避免泄露密钥。
+ */
+function toProviderErrorMessage(error: unknown) {
+  if (error instanceof AxiosError) {
+    const responseMessage = extractProviderResponseMessage(
+      error.response?.data,
+    );
+    return responseMessage || error.message;
+  }
+
+  return error instanceof Error ? error.message : '未知错误';
+}
+
+/**
+ * 从第三方响应体中提取最小错误消息。
+ */
+function extractProviderResponseMessage(data: unknown): string {
+  if (typeof data === 'string') {
+    return data.slice(0, 500);
+  }
+
+  if (typeof data !== 'object' || data === null) {
+    return '';
+  }
+
+  const payload = data as {
+    error?: { message?: unknown };
+    message?: unknown;
+  };
+
+  if (typeof payload.error?.message === 'string') {
+    return payload.error.message;
+  }
+
+  if (typeof payload.message === 'string') {
+    return payload.message;
+  }
+
+  return '';
 }

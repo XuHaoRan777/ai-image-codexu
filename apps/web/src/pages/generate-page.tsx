@@ -1,4 +1,4 @@
-import type { ChangeEvent, ReactNode } from "react"
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react"
 import {
   aspectRatios,
   imageQuantities,
@@ -9,10 +9,19 @@ import {
   type ImageQuantity,
   type ImageResolution,
 } from "@ai-image-codexu/shared"
-import { Check, ImagePlus, Loader2, Sparkles, Upload, X } from "lucide-react"
+import {
+  Expand,
+  ImagePlus,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -24,7 +33,10 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   aspectRatioLabels,
+  formatElapsedTime,
   formatShortTime,
+  getImageJobUrls,
+  isImageJobActive,
   resolutionLabels,
   statusLabels,
   statusToneClassNames,
@@ -39,9 +51,10 @@ export function GeneratePage({
   aspectRatio,
   creatingJob,
   enabledConfigs,
+  isGenerating,
   lastJob,
-  loading,
-  optimizedPrompt,
+  optimizingPrompt,
+  pollingJobId,
   prompt,
   quantity,
   referenceImages,
@@ -55,15 +68,16 @@ export function GeneratePage({
   onQuantityChange,
   onReferenceImagesChange,
   onResolutionChange,
+  onRetryJob,
   onSelectedConfigChange,
-  onUseOptimizedPrompt,
 }: {
   aspectRatio: AspectRatio
   creatingJob: boolean
   enabledConfigs: ImageModelConfig[]
+  isGenerating: boolean
   lastJob: ImageJob | null
-  loading: boolean
-  optimizedPrompt: string
+  optimizingPrompt: boolean
+  pollingJobId: string
   prompt: string
   quantity: ImageQuantity
   referenceImages: ReferenceImage[]
@@ -77,11 +91,13 @@ export function GeneratePage({
   onQuantityChange: (value: ImageQuantity) => void
   onReferenceImagesChange: (value: ReferenceImage[]) => void
   onResolutionChange: (value: ImageResolution) => void
+  onRetryJob: () => void
   onSelectedConfigChange: (value: string) => void
-  onUseOptimizedPrompt: () => void
 }) {
+  const generationControlsDisabled = isGenerating || optimizingPrompt
+
   return (
-    <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(360px,4fr)_minmax(0,6fr)]">
+    <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)]">
       <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -176,10 +192,14 @@ export function GeneratePage({
                 className="h-9 border-emerald-300/25 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/15"
                 size="sm"
                 variant="outline"
-                disabled={loading}
+                disabled={optimizingPrompt || generationControlsDisabled}
                 onClick={onOptimizePrompt}
               >
-                <Sparkles data-icon="inline-start" />
+                {optimizingPrompt ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Sparkles data-icon="inline-start" />
+                )}
                 优化提示词
               </Button>
             </div>
@@ -191,27 +211,6 @@ export function GeneratePage({
               onChange={(event) => onPromptChange(event.target.value)}
             />
           </div>
-
-          {optimizedPrompt ? (
-            <div className="max-h-36 overflow-auto rounded-lg border border-emerald-300/25 bg-emerald-300/10 p-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="font-mono text-xs uppercase text-emerald-100">
-                  Optimized Prompt
-                </span>
-                <Button
-                  size="sm"
-                  className="h-8 bg-emerald-300 text-emerald-950 hover:bg-emerald-200"
-                  onClick={onUseOptimizedPrompt}
-                >
-                  <Check data-icon="inline-start" />
-                  使用
-                </Button>
-              </div>
-              <p className="whitespace-pre-wrap text-sm leading-6 text-emerald-50/90">
-                {optimizedPrompt}
-              </p>
-            </div>
-          ) : null}
 
           <div className="motion-pop grid gap-3 rounded-lg border border-border/70 bg-background/45 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <Select
@@ -232,11 +231,11 @@ export function GeneratePage({
             <Button
               className={cn(
                 "h-10 w-full bg-primary text-primary-foreground shadow-[0_0_24px_rgba(52,211,153,0.18)] hover:bg-primary/90 sm:w-auto sm:shrink-0",
-                loading &&
+                generationControlsDisabled &&
                   !creatingJob &&
                   "bg-muted text-muted-foreground shadow-none hover:bg-muted disabled:opacity-60",
               )}
-              disabled={loading}
+              disabled={generationControlsDisabled}
               onClick={onCreateJob}
             >
               {creatingJob ? (
@@ -258,64 +257,290 @@ export function GeneratePage({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 pt-1 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)_auto]">
-          <div
-            className={cn(
-              "preview-frame motion-pop mx-auto flex w-full items-center justify-center overflow-hidden rounded-lg border border-border/75 transition-[max-width] duration-300 ease-out",
-              getPreviewFrameClass(aspectRatio),
-            )}
-          >
-            {lastJob?.imageUrl ? (
-              <img
-                src={lastJob.imageUrl}
-                alt="生成结果"
-                loading="lazy"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="grid max-w-[230px] justify-items-center gap-3 px-4 text-center">
-                <div className="flex size-11 items-center justify-center rounded-lg border border-emerald-300/25 bg-emerald-300/10 text-emerald-100">
-                  {lastJob?.status === "running" ||
-                  lastJob?.status === "queued" ? (
-                    <Loader2 className="size-5 animate-spin" />
-                  ) : (
-                    <ImagePlus className="size-5" />
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-medium">
-                    {lastJob ? statusLabels[lastJob.status] : "画布待命"}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {lastJob?.errorMessage ?? "创建任务后显示结果。"}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 text-sm">
-            <span className="truncate text-muted-foreground">
-              {lastJob ? formatShortTime(lastJob.createdAt) : "未创建"}
-            </span>
-            <div className="flex min-w-0 items-center justify-end gap-2">
-              {lastJob ? (
-                <span
-                  className={cn(
-                    "shrink-0 rounded-md border px-2 py-1 text-xs",
-                    statusToneClassNames[lastJob.status],
-                  )}
-                >
-                  {statusLabels[lastJob.status]}
-                </span>
-              ) : null}
-              <span className="min-w-0 truncate text-right text-foreground">
-                {lastJob?.configName ?? selectedConfig?.name ?? "未选择模型"}
-              </span>
-            </div>
-          </div>
+          <JobPreviewCanvas
+            aspectRatio={aspectRatio}
+            lastJob={lastJob}
+            pollingJobId={pollingJobId}
+            retryDisabled={optimizingPrompt}
+            selectedConfig={selectedConfig}
+            onRetryJob={onRetryJob}
+          />
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function JobPreviewCanvas({
+  aspectRatio,
+  lastJob,
+  onRetryJob,
+  pollingJobId,
+  retryDisabled,
+  selectedConfig,
+}: {
+  aspectRatio: AspectRatio
+  lastJob: ImageJob | null
+  onRetryJob: () => void
+  pollingJobId: string
+  retryDisabled: boolean
+  selectedConfig?: ImageModelConfig
+}) {
+  const imageUrls = getImageJobUrls(lastJob)
+  const [selectedImage, setSelectedImage] = useState({
+    jobId: "",
+    index: 0,
+  })
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false)
+  const [now, setNow] = useState(0)
+  const activeImageIndex =
+    selectedImage.jobId === lastJob?.id &&
+    selectedImage.index < imageUrls.length
+      ? selectedImage.index
+      : 0
+  const activeImageUrl = imageUrls[activeImageIndex] ?? imageUrls[0]
+  const active = isImageJobActive(lastJob)
+
+  useEffect(() => {
+    if (!active) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+    const timeoutId = window.setTimeout(() => {
+      setNow(Date.now())
+    }, 0)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.clearTimeout(timeoutId)
+    }
+  }, [active])
+
+  return (
+    <>
+      <div className="grid min-h-0 gap-3 lg:grid-rows-[minmax(0,1fr)_auto]">
+        <div
+          className={cn(
+            "preview-frame motion-pop mx-auto flex w-full items-center justify-center overflow-hidden rounded-lg border border-border/75 transition-[max-width] duration-300 ease-out lg:max-h-full",
+            getPreviewFrameClass(lastJob?.aspectRatio ?? aspectRatio),
+          )}
+        >
+          {activeImageUrl ? (
+            <button
+              type="button"
+              className="group/preview relative h-full w-full focus-visible:ring-3 focus-visible:ring-ring/50"
+              onClick={() => setPreviewDialogOpen(true)}
+              aria-label="放大查看生成结果"
+            >
+              <img
+                src={activeImageUrl}
+                alt="生成结果"
+                loading="lazy"
+                className="h-full w-full object-contain"
+              />
+              <span className="absolute right-3 top-3 flex size-9 items-center justify-center rounded-lg border border-white/20 bg-black/55 text-white opacity-0 shadow-lg backdrop-blur transition-opacity group-hover/preview:opacity-100 group-focus-visible/preview:opacity-100">
+                <Expand className="size-4" />
+              </span>
+            </button>
+          ) : active ? (
+            <GeneratingPreviewState
+              job={lastJob}
+              now={now}
+            />
+          ) : (
+            <IdlePreviewState
+              job={lastJob}
+              retryDisabled={Boolean(pollingJobId) || retryDisabled}
+              onRetryJob={onRetryJob}
+            />
+          )}
+        </div>
+
+        {imageUrls.length > 1 ? (
+          <div className="motion-pop flex min-h-16 gap-2 overflow-x-auto rounded-lg border border-border/70 bg-background/35 p-2">
+            {imageUrls.map((url, index) => (
+              <button
+                key={`${url}-${index}`}
+                type="button"
+                className={cn(
+                  "size-14 shrink-0 overflow-hidden rounded-md border bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50",
+                  activeImageIndex === index
+                    ? "border-emerald-300/70"
+                    : "border-border/70 hover:border-emerald-300/35",
+                )}
+                onClick={() =>
+                  setSelectedImage({ jobId: lastJob?.id ?? "", index })
+                }
+                aria-label={`查看第 ${index + 1} 张生成结果`}
+              >
+                <img
+                  src={url}
+                  alt={`生成结果 ${index + 1}`}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <JobPreviewFooter
+          activeImageIndex={activeImageIndex}
+          imageCount={imageUrls.length}
+          lastJob={lastJob}
+          selectedConfig={selectedConfig}
+        />
+      </div>
+
+      <ImagePreviewDialog
+        imageUrl={activeImageUrl}
+        open={previewDialogOpen}
+        onOpenChange={setPreviewDialogOpen}
+      />
+    </>
+  )
+}
+
+function GeneratingPreviewState({
+  job,
+  now,
+}: {
+  job: ImageJob | null
+  now: number
+}) {
+  return (
+    <div className="preview-loading relative z-10 grid w-full max-w-md justify-items-center gap-6 px-5 text-center">
+      <div className="preview-loading-ring">
+        <Loader2 className="size-11 animate-spin text-emerald-100" />
+      </div>
+      <div className="grid gap-2">
+        <p className="text-xs leading-5 text-muted-foreground">
+          {job
+            ? `${job.configName} · ${aspectRatioLabels[job.aspectRatio]} · ${resolutionLabels[job.resolution]} · ${job.quantity} 张 · 已等待 ${formatElapsedTime(job.createdAt, now)}`
+            : "正在创建任务。"}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function IdlePreviewState({
+  job,
+  onRetryJob,
+  retryDisabled,
+}: {
+  job: ImageJob | null
+  onRetryJob: () => void
+  retryDisabled: boolean
+}) {
+  const failed = job?.status === "failed"
+
+  return (
+    <div className="relative z-10 grid max-w-sm justify-items-center gap-3 px-4 text-center">
+      <div
+        className={cn(
+          "flex size-12 items-center justify-center rounded-lg border",
+          failed
+            ? "border-red-300/30 bg-red-400/10 text-red-100"
+            : "border-emerald-300/25 bg-emerald-300/10 text-emerald-100",
+        )}
+      >
+        {failed ? (
+          <RefreshCw className="size-5" />
+        ) : (
+          <ImagePlus className="size-5" />
+        )}
+      </div>
+      <div>
+        <p className="text-sm font-medium">
+          {job ? statusLabels[job.status] : "画布待命"}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {job?.errorMessage ?? "创建任务后显示结果。"}
+        </p>
+      </div>
+      {failed ? (
+        <Button
+          className="h-9 border-emerald-300/25 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/15"
+          size="sm"
+          variant="outline"
+          disabled={retryDisabled}
+          onClick={onRetryJob}
+        >
+          <RefreshCw data-icon="inline-start" />
+          重试
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function JobPreviewFooter({
+  activeImageIndex,
+  imageCount,
+  lastJob,
+  selectedConfig,
+}: {
+  activeImageIndex: number
+  imageCount: number
+  lastJob: ImageJob | null
+  selectedConfig?: ImageModelConfig
+}) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 text-sm">
+      <span className="truncate text-muted-foreground">
+        {lastJob ? formatShortTime(lastJob.createdAt) : "未创建"}
+      </span>
+      <div className="flex min-w-0 items-center justify-end gap-2">
+        {imageCount > 1 ? (
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {activeImageIndex + 1}/{imageCount}
+          </span>
+        ) : null}
+        {lastJob ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-md border px-2 py-1 text-xs",
+              statusToneClassNames[lastJob.status],
+            )}
+          >
+            {statusLabels[lastJob.status]}
+          </span>
+        ) : null}
+        <span className="min-w-0 truncate text-right text-foreground">
+          {lastJob?.configName ?? selectedConfig?.name ?? "未选择模型"}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function ImagePreviewDialog({
+  imageUrl,
+  onOpenChange,
+  open,
+}: {
+  imageUrl?: string
+  onOpenChange: (open: boolean) => void
+  open: boolean
+}) {
+  return (
+    <Dialog open={open && Boolean(imageUrl)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100dvh-24px)] w-[98vw] max-w-none overflow-hidden p-2">
+        {imageUrl ? (
+          <div className="flex max-h-[calc(100dvh-48px)] min-h-[420px] items-center justify-center overflow-hidden rounded-lg border border-border/75 bg-black/40">
+            <img
+              src={imageUrl}
+              alt="放大后的生成结果"
+              className="max-h-[calc(100dvh-48px)] w-full object-contain"
+            />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   )
 }
 

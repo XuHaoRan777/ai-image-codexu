@@ -51,7 +51,8 @@ apps/api/src/
 
 - `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存来源类型、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。来源类型由 shared 模块的 `ImageProviderTypeEnum` 统一维护。模型配置不再维护单独的模型类型，也不维护运营商请求地址；真实请求地址由后端 provider 方法固定，真实请求模型名由 `model_name_override` 或来源类型默认值决定。
 - `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
-- `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存 `api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
+- `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存完整请求地址 `url`、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
+- `POST /api/prompt/optimize` 必须读取已保存的 `assistant-config` 并调用真实辅助模型 provider；辅助模型未启用、缺少请求地址、缺少模型名或缺少可解密 API key 时返回明确错误，不在后端本地拼接假优化结果。
 - `image-jobs` 使用 `ImageJobEntity` 和 `image_job` 表持久化；创建任务时立即写入 `queued` 记录，后台执行 provider 请求时更新为 `running`，成功后写入 `image_url` / `image_urls`，失败后写入 `error_message`。生成记录不保存前端上传的参考图 base64，避免任务表膨胀。
 - 配置页不注入默认测试配置；`image_model_config` 空表时 `GET /api/image-model-configs` 返回空列表，配置必须来自真实创建请求或数据库记录。
 - API key 使用 AES-256-GCM 加密后入库。生产环境必须配置 `API_KEY_ENCRYPTION_SECRET` 或 `APP_SECRET`；开发环境未配置时使用固定开发 fallback。历史上只保存 `api_key_masked` 的记录无法反推原始密钥，需要在配置页重新填写密钥。
@@ -85,7 +86,7 @@ apps/api/src/
 
 - `id`：varchar(64) 主键，当前固定为 `default`
 - `mode`：`openai` 或 `claude`
-- `base_url`：请求地址，可为空
+- `base_url`：请求地址，对外 API 字段为 `url`，必须填写完整 endpoint；后端不自动补全 provider 路径
 - `api_key_masked`：掩码密钥，仅用于前端展示
 - `api_key_encrypted`：加密密文，供后端真实请求时解密使用
 - `model_name`：模型名
@@ -130,6 +131,10 @@ export class EntityName {
 - 辅助模型 provider：OpenAI 模式、Claude 模式
 - 控制器不直接依赖第三方请求结构
 - 第三方 API key 只在后端使用，前端只接收掩码字段
+- 辅助模型 OpenAI 模式使用 Chat Completions 协议：请求地址直接使用配置中的完整 `url`，后端不追加 `/chat/completions`，通过 `Authorization: Bearer <apiKey>` 鉴权，响应读取 `choices[0].message.content`。
+- 辅助模型 Claude 模式使用 Anthropic Messages 协议：请求地址直接使用配置中的完整 `url`，后端不追加 `/v1/messages`，通过 `x-api-key` 和 `anthropic-version: 2023-06-01` 鉴权，响应读取首个 `type = text` 的 `content[].text`。
+- 辅助模型提示词优化只返回优化后的提示词正文；请求失败时向前端返回第三方错误摘要，不记录或返回原始 API key。
+- 辅助模型系统提示词必须以用户原意为最高优先级，只在不改变主体、动作、场景、风格、数量、视角和故事含义的前提下补充构图、镜头、光线、材质、质量和负面约束。
 - 每个生图来源在 `image-generation.providers.ts` 中维护独立完整的 provider 方法；即使协议字段相似，也不通过“兼容协议中间方法”隐藏 URL、path、headers 和请求体差异。每个来源的固定 base URL 直接写在对应 provider 方法内部，`generate` 分发使用 shared 的 `ImageProviderTypeEnum`，不使用裸字符串 `case`。
 - `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。`GET /api/image-jobs` 按创建时间倒序返回持久化历史列表。
 - 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。AiCodeWith 由后端根据任务参数决定真实请求模型：分辨率为 `1k` 且数量为 1 时使用 `gpt-image-2-beta`，其它情况使用 `gpt-image-2`。

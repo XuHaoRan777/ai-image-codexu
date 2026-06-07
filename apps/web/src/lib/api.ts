@@ -14,7 +14,7 @@ import { isApiSuccessResponseCode } from "@ai-image-codexu/shared"
 import axios, { AxiosError, type AxiosResponse } from "axios"
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3011/api"
+  import.meta.env.VITE_API_BASE_URL ?? "/api"
 
 const http = axios.create({
   baseURL: API_BASE_URL,

@@ -1,6 +1,7 @@
 import type {
   AssistantProviderMode,
   AspectRatio,
+  ImageJob,
   ImageJobStatus,
   ImageProviderType,
   ImageResolution,
@@ -9,7 +10,7 @@ import { ImageProviderTypeEnum } from "@ai-image-codexu/shared"
 
 export type AssistantFormState = {
   mode: AssistantProviderMode
-  baseUrl: string
+  url: string
   apiKey: string
   modelName: string
   enabled: boolean
@@ -85,4 +86,44 @@ export function formatShortTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+/** 判断生图任务是否仍占用当前单任务生成通道。 */
+export function isImageJobActive(job?: Pick<ImageJob, "status"> | null) {
+  return job?.status === "queued" || job?.status === "running"
+}
+
+/** 从任务记录中提取可查看的生成图列表，并兼容旧的单图字段。 */
+export function getImageJobUrls(
+  job?: Pick<ImageJob, "imageUrl" | "imageUrls"> | null,
+) {
+  if (!job) {
+    return []
+  }
+
+  if (job.imageUrls && job.imageUrls.length > 0) {
+    return job.imageUrls
+  }
+
+  return job.imageUrl ? [job.imageUrl] : []
+}
+
+/** 格式化任务已经等待的时间，用于生成中的紧凑状态反馈。 */
+export function formatElapsedTime(value: string, now = Date.now()) {
+  const startedAt = new Date(value).getTime()
+
+  if (Number.isNaN(startedAt)) {
+    return "刚刚"
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((now - startedAt) / 1000))
+
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds} 秒`
+  }
+
+  const minutes = Math.floor(elapsedSeconds / 60)
+  const seconds = elapsedSeconds % 60
+
+  return `${minutes} 分 ${seconds.toString().padStart(2, "0")} 秒`
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AspectRatio,
   type AssistantModelConfig,
@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
 import {
   type AssistantFormState,
+  isImageJobActive,
   type ReferenceImage,
 } from "@/lib/image-ui"
 import { toast } from "@/lib/toast"
@@ -68,7 +69,7 @@ const initialImageConfigForm: CreateImageModelConfigInput = {
 
 const initialAssistantForm: AssistantFormState = {
   mode: "openai",
-  baseUrl: "",
+  url: "",
   apiKey: "",
   modelName: "",
   enabled: false,
@@ -85,7 +86,6 @@ function App() {
   const [editingConfigId, setEditingConfigId] = useState<string | null>(null)
   const [selectedConfigId, setSelectedConfigId] = useState("")
   const [prompt, setPrompt] = useState("")
-  const [optimizedPrompt, setOptimizedPrompt] = useState("")
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("auto")
   const [resolution, setResolution] = useState<ImageResolution>("1k")
@@ -94,8 +94,13 @@ function App() {
   const [historyJobs, setHistoryJobs] = useState<ImageJob[]>([])
   const [selectedHistoryJobId, setSelectedHistoryJobId] = useState("")
   const [loading, setLoading] = useState(false)
+  const [optimizingPrompt, setOptimizingPrompt] = useState(false)
   const [creatingJob, setCreatingJob] = useState(false)
+  const [pollingJobId, setPollingJobId] = useState("")
+  const [updatingAssistantEnabled, setUpdatingAssistantEnabled] =
+    useState(false)
   const [updatingConfigEnabledId, setUpdatingConfigEnabledId] = useState("")
+  const generationLockedRef = useRef(false)
 
   const enabledConfigs = useMemo(
     () => imageConfigs.filter((config) => config.enabled),
@@ -113,6 +118,15 @@ function App() {
     () => historyJobs.find((job) => job.id === selectedHistoryJobId) ?? null,
     [historyJobs, selectedHistoryJobId],
   )
+  const activeJob =
+    (lastJob && isImageJobActive(lastJob) ? lastJob : null) ??
+    historyJobs.find(isImageJobActive) ??
+    null
+  const isGenerating = creatingJob || Boolean(activeJob)
+
+  useEffect(() => {
+    generationLockedRef.current = isGenerating
+  }, [isGenerating])
 
   async function refreshConfigs() {
     const [configs, assistant] = await Promise.all([
@@ -124,7 +138,7 @@ function App() {
     setAssistantConfig(assistant)
     setAssistantForm({
       mode: assistant.mode,
-      baseUrl: assistant.baseUrl,
+      url: assistant.url,
       apiKey: "",
       modelName: assistant.modelName,
       enabled: assistant.enabled,
@@ -138,17 +152,76 @@ function App() {
   async function refreshHistoryJobs() {
     const jobs = await api.listImageJobs()
     setHistoryJobs(jobs)
+    setLastJob((currentJob) => {
+      if (!currentJob) {
+        return currentJob
+      }
+
+      return jobs.find((job) => job.id === currentJob.id) ?? currentJob
+    })
     setSelectedHistoryJobId((currentId) =>
       jobs.some((job) => job.id === currentId) ? currentId : "",
     )
   }
 
-  function rememberJob(job: ImageJob) {
+  const rememberJob = useCallback((job: ImageJob) => {
     setHistoryJobs((current) => [
       job,
       ...current.filter((item) => item.id !== job.id),
     ])
-  }
+  }, [])
+
+  const pollImageJob = useCallback(
+    (id: string) => {
+      const maxAttempts = Math.ceil(
+        imageJobPollTimeoutMs / imageJobPollIntervalMs,
+      )
+      let attempt = 0
+
+      function scheduleNextPoll() {
+        setPollingJobId(id)
+        window.setTimeout(pollOnce, imageJobPollIntervalMs)
+      }
+
+      function pollOnce() {
+        void api
+          .getImageJob(id)
+          .then((updated) => {
+            setLastJob(updated)
+            rememberJob(updated)
+
+            if (
+              updated.status === "queued" ||
+              updated.status === "running"
+            ) {
+              if (attempt < maxAttempts) {
+                attempt += 1
+                scheduleNextPoll()
+              } else {
+                setPollingJobId((currentId) =>
+                  currentId === id ? "" : currentId,
+                )
+                toast.warning("生图任务仍在进行，可稍后从历史记录查看")
+              }
+            } else {
+              generationLockedRef.current = false
+              setPollingJobId((currentId) =>
+                currentId === id ? "" : currentId,
+              )
+            }
+          })
+          .catch(() => {
+            setPollingJobId((currentId) =>
+              currentId === id ? "" : currentId,
+            )
+            toast.warning("暂时无法刷新生图任务状态")
+          })
+      }
+
+      scheduleNextPoll()
+    },
+    [rememberJob],
+  )
 
   function resetImageConfigForm() {
     setImageConfigForm(initialImageConfigForm)
@@ -217,7 +290,7 @@ function App() {
         setAssistantConfig(assistant)
         setAssistantForm({
           mode: assistant.mode,
-          baseUrl: assistant.baseUrl,
+          url: assistant.url,
           apiKey: "",
           modelName: assistant.modelName,
           enabled: assistant.enabled,
@@ -226,6 +299,13 @@ function App() {
           configs.find((item) => item.enabled)?.id ?? "",
         )
         setHistoryJobs(jobs)
+        const runningJob = jobs.find(isImageJobActive)
+
+        if (runningJob) {
+          generationLockedRef.current = true
+          setLastJob(runningJob)
+          pollImageJob(runningJob.id)
+        }
       } catch (error) {
         if (!ignore) {
           toast.error(error instanceof Error ? error.message : "加载配置失败")
@@ -238,7 +318,7 @@ function App() {
     return () => {
       ignore = true
     }
-  }, [])
+  }, [pollImageJob])
 
   async function handleSaveImageConfig() {
     setLoading(true)
@@ -330,7 +410,13 @@ function App() {
     try {
       const updated = await api.updateAssistantConfig(assistantForm)
       setAssistantConfig(updated)
-      setAssistantForm((current) => ({ ...current, apiKey: "" }))
+      setAssistantForm({
+        mode: updated.mode,
+        url: updated.url,
+        apiKey: "",
+        modelName: updated.modelName,
+        enabled: updated.enabled,
+      })
       toast.success("辅助模型配置已保存")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存辅助模型失败")
@@ -339,81 +425,148 @@ function App() {
     }
   }
 
+  async function handleToggleAssistantEnabled(enabled: boolean) {
+    const previousForm = assistantForm
+    const previousConfig = assistantConfig
+    const nextForm = {
+      ...assistantForm,
+      enabled,
+    }
+
+    setUpdatingAssistantEnabled(true)
+    setAssistantForm(nextForm)
+    setAssistantConfig((current) =>
+      current ? { ...current, enabled } : current,
+    )
+
+    try {
+      const updated = await api.updateAssistantConfig(nextForm)
+
+      setAssistantConfig(updated)
+      setAssistantForm({
+        mode: updated.mode,
+        url: updated.url,
+        apiKey: "",
+        modelName: updated.modelName,
+        enabled: updated.enabled,
+      })
+      toast.success(enabled ? "辅助模型已启用" : "辅助模型已停用")
+    } catch (error) {
+      setAssistantForm(previousForm)
+      setAssistantConfig(previousConfig)
+      toast.error(error instanceof Error ? error.message : "更新辅助模型状态失败")
+    } finally {
+      setUpdatingAssistantEnabled(false)
+    }
+  }
+
   async function handleOptimizePrompt() {
+    if (generationLockedRef.current) {
+      toast.warning("当前生图任务完成后再优化提示词")
+      return
+    }
     if (!prompt.trim()) {
       toast.warning("请先输入提示词")
       return
     }
 
-    setLoading(true)
+    setOptimizingPrompt(true)
 
     try {
       const result = await api.optimizePrompt(prompt)
-      setOptimizedPrompt(result.optimizedPrompt)
+      setPrompt(result.optimizedPrompt)
       toast.success("提示词已优化")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "优化提示词失败")
     } finally {
-      setLoading(false)
+      setOptimizingPrompt(false)
     }
   }
 
   async function handleCreateJob() {
-    const finalPrompt = optimizedPrompt || prompt
-
-    if (!selectedConfigId || !finalPrompt.trim()) {
+    if (generationLockedRef.current) {
+      toast.warning("已有生图任务正在进行")
+      return
+    }
+    if (optimizingPrompt) {
+      toast.warning("提示词优化完成后再创建生图任务")
+      return
+    }
+    if (!selectedConfigId || !prompt.trim()) {
       toast.warning("请选择模型配置并输入提示词")
       return
     }
 
+    await createImageJobWithInput({
+      configId: selectedConfigId,
+      prompt,
+      aspectRatio,
+      resolution,
+      quantity,
+      referenceImages: referenceImages.map((image) => image.dataUrl),
+    })
+  }
+
+  function handleRetryJob() {
+    if (!lastJob) {
+      return
+    }
+
+    if (generationLockedRef.current) {
+      toast.warning("已有生图任务正在进行")
+      return
+    }
+    if (optimizingPrompt) {
+      toast.warning("提示词优化完成后再重试生图")
+      return
+    }
+
+    setSelectedConfigId(lastJob.configId)
+    setPrompt(lastJob.prompt)
+    setAspectRatio(lastJob.aspectRatio)
+    setResolution(lastJob.resolution)
+    setQuantity(lastJob.quantity as ImageQuantity)
+    void createImageJobWithInput({
+      configId: lastJob.configId,
+      prompt: lastJob.prompt,
+      aspectRatio: lastJob.aspectRatio,
+      resolution: lastJob.resolution,
+      quantity: lastJob.quantity as ImageQuantity,
+      referenceImages: referenceImages.map((image) => image.dataUrl),
+    })
+  }
+
+  async function createImageJobWithInput(input: {
+    configId: string
+    prompt: string
+    aspectRatio: AspectRatio
+    resolution: ImageResolution
+    quantity: ImageQuantity
+    referenceImages: string[]
+  }) {
+    if (generationLockedRef.current) {
+      toast.warning("已有生图任务正在进行")
+      return
+    }
+
+    generationLockedRef.current = true
     setLoading(true)
     setCreatingJob(true)
 
     try {
-      const job = await api.createImageJob({
-        configId: selectedConfigId,
-        prompt: finalPrompt,
-        aspectRatio,
-        resolution,
-        quantity,
-        referenceImages: referenceImages.map((image) => image.dataUrl),
-      })
+      const job = await api.createImageJob(input)
 
       setLastJob(job)
       rememberJob(job)
       toast.success("生图任务已创建")
       pollImageJob(job.id)
     } catch (error) {
+      generationLockedRef.current = false
       toast.error(error instanceof Error ? error.message : "创建生图任务失败")
     } finally {
       setCreatingJob(false)
       setLoading(false)
     }
-  }
-
-  function pollImageJob(id: string, attempt = 0) {
-    const maxAttempts = Math.ceil(
-      imageJobPollTimeoutMs / imageJobPollIntervalMs,
-    )
-
-    window.setTimeout(() => {
-      void api
-        .getImageJob(id)
-        .then((updated) => {
-          setLastJob(updated)
-          rememberJob(updated)
-
-          if (
-            updated.status === "queued" ||
-            updated.status === "running"
-          ) {
-            if (attempt < maxAttempts) {
-              pollImageJob(id, attempt + 1)
-            }
-          }
-        })
-        .catch(() => undefined)
-    }, imageJobPollIntervalMs)
   }
 
   const assistantEnabled = Boolean(assistantConfig?.enabled)
@@ -501,9 +654,10 @@ function App() {
                 aspectRatio={aspectRatio}
                 creatingJob={creatingJob}
                 enabledConfigs={enabledConfigs}
+                isGenerating={isGenerating}
                 lastJob={lastJob}
-                loading={loading}
-                optimizedPrompt={optimizedPrompt}
+                optimizingPrompt={optimizingPrompt}
+                pollingJobId={pollingJobId}
                 prompt={prompt}
                 quantity={quantity}
                 referenceImages={referenceImages}
@@ -513,18 +667,12 @@ function App() {
                 onAspectRatioChange={setAspectRatio}
                 onCreateJob={handleCreateJob}
                 onOptimizePrompt={handleOptimizePrompt}
-                onPromptChange={(value) => {
-                  setPrompt(value)
-                  setOptimizedPrompt("")
-                }}
+                onPromptChange={setPrompt}
                 onQuantityChange={setQuantity}
                 onReferenceImagesChange={setReferenceImages}
                 onResolutionChange={setResolution}
+                onRetryJob={handleRetryJob}
                 onSelectedConfigChange={setSelectedConfigId}
-                onUseOptimizedPrompt={() => {
-                  setPrompt(optimizedPrompt)
-                  setOptimizedPrompt("")
-                }}
               />
             ) : view === "history" ? (
               <HistoryPage
@@ -541,8 +689,10 @@ function App() {
                 imageConfigForm={imageConfigForm}
                 imageConfigs={imageConfigs}
                 loading={loading}
+                updatingAssistantEnabled={updatingAssistantEnabled}
                 updatingConfigEnabledId={updatingConfigEnabledId}
                 onAssistantFormChange={setAssistantForm}
+                onAssistantEnabledChange={handleToggleAssistantEnabled}
                 onCancelConfigForm={cancelConfigForm}
                 onDeleteConfig={handleDeleteConfig}
                 onEditConfig={startEditConfig}

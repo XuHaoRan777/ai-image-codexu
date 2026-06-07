@@ -125,7 +125,7 @@ export const updateImageModelConfigEnabledSchema = z.object({
 
 export const assistantModelConfigSchema = z.object({
   mode: z.enum(assistantProviderModes),
-  baseUrl: z.url('请求地址格式不正确').or(z.literal('')),
+  url: z.url('请求地址格式不正确').or(z.literal('')),
   apiKeyMasked: z.string().optional(),
   modelName: z.string(),
   enabled: z.boolean(),
@@ -134,7 +134,7 @@ export const assistantModelConfigSchema = z.object({
 
 export const updateAssistantModelConfigSchema = z.object({
   mode: z.enum(assistantProviderModes),
-  baseUrl: z.url('请求地址格式不正确').or(z.literal('')),
+  url: z.url('请求地址格式不正确').or(z.literal('')),
   apiKey: z.string().optional(),
   modelName: z.string(),
   enabled: z.boolean(),

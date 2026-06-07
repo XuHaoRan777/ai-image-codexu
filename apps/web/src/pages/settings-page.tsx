@@ -50,8 +50,10 @@ export function SettingsPage({
   imageConfigForm,
   imageConfigs,
   loading,
+  updatingAssistantEnabled,
   updatingConfigEnabledId,
   onAssistantFormChange,
+  onAssistantEnabledChange,
   onCancelConfigForm,
   onDeleteConfig,
   onEditConfig,
@@ -67,8 +69,10 @@ export function SettingsPage({
   imageConfigForm: CreateImageModelConfigInput
   imageConfigs: ImageModelConfig[]
   loading: boolean
+  updatingAssistantEnabled: boolean
   updatingConfigEnabledId: string
   onAssistantFormChange: (value: AssistantFormState) => void
+  onAssistantEnabledChange: (enabled: boolean) => void
   onCancelConfigForm: () => void
   onDeleteConfig: (id: string) => void
   onEditConfig: (config: ImageModelConfig) => void
@@ -357,11 +361,11 @@ export function SettingsPage({
               id="assistant-url"
               className="h-10 border-border/80 bg-background/55 font-mono text-sm"
               placeholder="https://third-party.example.com/v1/chat/completions"
-              value={assistantForm.baseUrl}
+              value={assistantForm.url}
               onChange={(event) =>
                 onAssistantFormChange({
                   ...assistantForm,
-                  baseUrl: event.target.value,
+                  url: event.target.value,
                 })
               }
             />
@@ -396,6 +400,20 @@ export function SettingsPage({
                 })
               }
             />
+          </Field>
+
+          <Field id="assistant-enabled" label="启用辅助模型">
+            <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/55 px-3">
+              <span className="text-sm text-muted-foreground">
+                {assistantForm.enabled ? "已启用" : "已停用"}
+              </span>
+              <Switch
+                id="assistant-enabled"
+                checked={assistantForm.enabled}
+                disabled={loading || updatingAssistantEnabled}
+                onCheckedChange={onAssistantEnabledChange}
+              />
+            </div>
           </Field>
 
           <Button

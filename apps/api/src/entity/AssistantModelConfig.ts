@@ -10,7 +10,7 @@ export class AssistantModelConfigEntity {
   mode: AssistantProviderMode;
 
   @Column({ type: 'varchar', length: 500, name: 'base_url', default: '' })
-  baseUrl: string;
+  url: string;
 
   @Column({
     type: 'varchar',

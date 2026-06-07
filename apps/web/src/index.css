@@ -314,12 +314,18 @@
 
   .preview-frame {
     position: relative;
-    min-height: 240px;
+    min-height: 320px;
     background:
       linear-gradient(135deg, oklch(0.76 0.16 160 / 0.1), transparent 38%),
       linear-gradient(315deg, oklch(0.78 0.15 72 / 0.12), transparent 42%),
       oklch(0.105 0.015 245);
     box-shadow: inset 0 0 55px oklch(0 0 0 / 0.36);
+  }
+
+  @media (min-width: 1024px) {
+    .preview-frame {
+      min-height: 460px;
+    }
   }
 
   .preview-frame::before {
@@ -332,6 +338,45 @@
       linear-gradient(90deg, oklch(1 0 0 / 0.045) 1px, transparent 1px);
     background-size: 24px 24px;
     mask-image: linear-gradient(180deg, black, transparent 82%);
+  }
+
+  .preview-loading::before,
+  .preview-loading::after {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    z-index: -1;
+    width: 220px;
+    height: 220px;
+    border: 1px solid oklch(0.76 0.16 160 / 0.18);
+    border-radius: 999px;
+    content: "";
+    transform: translate(-50%, -50%);
+    animation: preview-pulse 2.6s var(--motion-ease) infinite;
+  }
+
+  .preview-loading::after {
+    width: 310px;
+    height: 310px;
+    border-color: oklch(0.78 0.15 72 / 0.13);
+    animation-delay: 520ms;
+  }
+
+  .preview-loading-ring {
+    display: flex;
+    width: 104px;
+    height: 104px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid oklch(0.76 0.16 160 / 0.36);
+    border-radius: var(--radius-lg);
+    color: oklch(0.9 0.1 160);
+    background:
+      radial-gradient(circle at 30% 20%, oklch(1 0 0 / 0.12), transparent 32%),
+      linear-gradient(135deg, oklch(0.76 0.16 160 / 0.18), transparent),
+      oklch(0.16 0.022 245 / 0.88);
+    box-shadow:
+      0 0 56px oklch(0.76 0.16 160 / 0.26),
+      inset 0 1px 0 oklch(1 0 0 / 0.12);
   }
 
   .toast-card {
@@ -392,6 +437,29 @@
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes preview-pulse {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.78);
+  }
+  38% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.18);
+  }
+}
+
+@keyframes preview-scan {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(260%);
   }
 }
 
