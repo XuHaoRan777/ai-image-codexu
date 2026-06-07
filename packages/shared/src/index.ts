@@ -149,6 +149,20 @@ export const promptOptimizeResponseSchema = z.object({
   optimizedPrompt: z.string(),
 });
 
+export const imageRecognitionRequestSchema = z.object({
+  imageDataUrl: z
+    .string()
+    .min(1, '请上传图片')
+    .refine((value) => /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value), {
+      message: '图片格式不正确',
+    }),
+  prompt: z.string().min(1, '请输入识图提示词'),
+});
+
+export const imageRecognitionResponseSchema = z.object({
+  result: z.string(),
+});
+
 export const createImageJobSchema = z.object({
   configId: z.string().min(1, '请选择生图模型配置'),
   prompt: z.string().min(1, '提示词不能为空'),
@@ -206,6 +220,12 @@ export type UpdateAssistantModelConfigInput = z.infer<
 export type PromptOptimizeRequest = z.infer<typeof promptOptimizeRequestSchema>;
 export type PromptOptimizeResponse = z.infer<
   typeof promptOptimizeResponseSchema
+>;
+export type ImageRecognitionRequest = z.infer<
+  typeof imageRecognitionRequestSchema
+>;
+export type ImageRecognitionResponse = z.infer<
+  typeof imageRecognitionResponseSchema
 >;
 export type CreateImageJobInput = z.infer<typeof createImageJobSchema>;
 export type ImageJob = z.infer<typeof imageJobSchema>;

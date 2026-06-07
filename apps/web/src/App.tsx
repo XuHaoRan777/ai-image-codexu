@@ -13,6 +13,7 @@ import {
 import {
   Bot,
   Brush,
+  Eye,
   History,
   ImagePlus,
   Layers3,
@@ -33,13 +34,15 @@ import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { GeneratePage } from "@/pages/generate-page"
 import { HistoryPage } from "@/pages/history-page"
+import { ImageRecognitionPage } from "@/pages/image-recognition-page"
 import { SettingsPage } from "@/pages/settings-page"
 
-type View = "generate" | "history" | "settings"
+type View = "generate" | "history" | "recognize" | "settings"
 
 const viewHashes: Record<View, string> = {
   generate: "#/generate",
   history: "#/history",
+  recognize: "#/recognize",
   settings: "#/settings",
 }
 const imageJobPollIntervalMs = 1500
@@ -52,7 +55,12 @@ function readViewFromHash(): View {
 
   const route = window.location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]
 
-  if (route === "history" || route === "settings" || route === "generate") {
+  if (
+    route === "history" ||
+    route === "recognize" ||
+    route === "settings" ||
+    route === "generate"
+  ) {
     return route
   }
 
@@ -616,6 +624,14 @@ function App() {
               }}
             />
             <NavButton
+              active={view === "recognize"}
+              href={viewHashes.recognize}
+              icon={Eye}
+              label="识图"
+              tone="cyan"
+              onClick={() => navigateToView("recognize")}
+            />
+            <NavButton
               active={view === "settings"}
               href={viewHashes.settings}
               icon={Settings}
@@ -681,6 +697,8 @@ function App() {
                 selectedHistoryJobId={selectedHistoryJobId}
                 onSelectHistoryJob={setSelectedHistoryJobId}
               />
+            ) : view === "recognize" ? (
+              <ImageRecognitionPage assistantConfig={assistantConfig} />
             ) : (
               <SettingsPage
                 assistantForm={assistantForm}

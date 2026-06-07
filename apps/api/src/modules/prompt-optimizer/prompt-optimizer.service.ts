@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import type {
   AssistantModelConfig,
+  ImageRecognitionRequest,
+  ImageRecognitionResponse,
   PromptOptimizeRequest,
   PromptOptimizeResponse,
   UpdateAssistantModelConfigInput,
@@ -27,6 +29,13 @@ const promptOptimizerSystemPrompt = [
   '必要时加入简短负面约束，如避免水印、乱码文字、畸形结构、低清晰度、过度锐化、额外肢体、主体偏离。',
   '只输出优化后的提示词正文，不要解释、不要分点、不要添加标题、不要包裹引号。',
 ].join('\n');
+const imageRecognitionSystemPrompt = [
+  '你是一个严谨的图片理解助手，必须基于图片中真实可见的信息回答用户问题。',
+  '优先识别图片中的主体、物品、场景、文字、空间关系、颜色、材质、风格和可能用途。',
+  '如果用户要求电商文案、OCR、属性分析或百科解释，请按用户要求的格式输出。',
+  '不要编造图片中不可见或无法确认的信息；无法判断时明确说明“不确定”或“图片中无法确认”。',
+  '默认使用中文输出，结构清晰，内容直接，不要复述系统规则。',
+].join('\n');
 
 type OpenAiChatResponse = {
   choices?: Array<{
@@ -41,6 +50,17 @@ type ClaudeMessageResponse = {
     type?: string;
     text?: string;
   }>;
+};
+
+type AssistantRuntime = {
+  apiKey: string;
+  url: string;
+};
+
+type ParsedImageDataUrl = {
+  base64Data: string;
+  dataUrl: string;
+  mimeType: string;
 };
 
 @Injectable()
@@ -102,6 +122,23 @@ export class PromptOptimizerService {
   }
 
   /**
+   * 使用已启用的辅助模型配置执行无持久化图片理解。
+   */
+  async recognizeImage(
+    input: ImageRecognitionRequest,
+  ): Promise<ImageRecognitionResponse> {
+    const assistantConfig = await this.ensureAssistantConfig();
+    const image = parseImageDataUrl(input.imageDataUrl);
+    const result = await this.callImageRecognitionProvider(
+      assistantConfig,
+      input.prompt.trim(),
+      image,
+    );
+
+    return { result };
+  }
+
+  /**
    * 根据辅助模型配置调用真实第三方模型优化提示词。
    */
   private async callAssistantProvider(
@@ -114,22 +151,14 @@ export class PromptOptimizerService {
     if (!config.modelName.trim()) {
       throw new BadRequestException('辅助模型缺少模型名称');
     }
-    if (!config.url.trim()) {
-      throw new BadRequestException('辅助模型缺少请求地址');
-    }
-
-    const apiKey = decryptSecret(config.apiKeyEncrypted);
-
-    if (!apiKey) {
-      throw new BadRequestException('辅助模型缺少 API key');
-    }
+    const runtime = this.getAssistantRuntime(config);
 
     try {
       switch (config.mode) {
         case 'openai':
-          return await this.callOpenAiAssistant(config, apiKey, prompt);
+          return await this.callOpenAiAssistant(config, runtime, prompt);
         case 'claude':
-          return await this.callClaudeAssistant(config, apiKey, prompt);
+          return await this.callClaudeAssistant(config, runtime, prompt);
       }
     } catch (error) {
       throw new BadGatewayException(
@@ -143,11 +172,11 @@ export class PromptOptimizerService {
    */
   private async callOpenAiAssistant(
     config: AssistantModelConfigEntity,
-    apiKey: string,
+    runtime: AssistantRuntime,
     prompt: string,
   ) {
     const response = await axios.post<OpenAiChatResponse>(
-      config.url.trim(),
+      runtime.url,
       {
         model: config.modelName,
         messages: [
@@ -164,7 +193,7 @@ export class PromptOptimizerService {
       },
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${runtime.apiKey}`,
           'Content-Type': 'application/json',
         },
         timeout: assistantRequestTimeoutMs,
@@ -185,11 +214,11 @@ export class PromptOptimizerService {
    */
   private async callClaudeAssistant(
     config: AssistantModelConfigEntity,
-    apiKey: string,
+    runtime: AssistantRuntime,
     prompt: string,
   ) {
     const response = await axios.post<ClaudeMessageResponse>(
-      config.url.trim(),
+      runtime.url,
       {
         model: config.modelName,
         max_tokens: 1800,
@@ -204,7 +233,7 @@ export class PromptOptimizerService {
       },
       {
         headers: {
-          'x-api-key': apiKey,
+          'x-api-key': runtime.apiKey,
           'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
@@ -220,6 +249,175 @@ export class PromptOptimizerService {
     }
 
     return optimizedPrompt;
+  }
+
+  /**
+   * 根据辅助模型配置调用真实第三方模型分析图片。
+   */
+  private async callImageRecognitionProvider(
+    config: AssistantModelConfigEntity,
+    prompt: string,
+    image: ParsedImageDataUrl,
+  ) {
+    if (!config.enabled) {
+      throw new BadRequestException('辅助模型未启用');
+    }
+    if (!config.modelName.trim()) {
+      throw new BadRequestException('辅助模型缺少模型名称');
+    }
+    const runtime = this.getAssistantRuntime(config);
+
+    try {
+      switch (config.mode) {
+        case 'openai':
+          return await this.callOpenAiImageRecognition(
+            config,
+            runtime,
+            prompt,
+            image,
+          );
+        case 'claude':
+          return await this.callClaudeImageRecognition(
+            config,
+            runtime,
+            prompt,
+            image,
+          );
+      }
+    } catch (error) {
+      throw new BadGatewayException(
+        `识图请求失败：${toProviderErrorMessage(error)}`,
+      );
+    }
+  }
+
+  /**
+   * 使用 OpenAI Chat Completions 视觉消息格式分析图片。
+   */
+  private async callOpenAiImageRecognition(
+    config: AssistantModelConfigEntity,
+    runtime: AssistantRuntime,
+    prompt: string,
+    image: ParsedImageDataUrl,
+  ) {
+    const response = await axios.post<OpenAiChatResponse>(
+      runtime.url,
+      {
+        model: config.modelName,
+        messages: [
+          {
+            role: 'system',
+            content: imageRecognitionSystemPrompt,
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: prompt,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: image.dataUrl,
+                },
+              },
+            ],
+          },
+        ],
+        temperature: 0.3,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${runtime.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: assistantRequestTimeoutMs,
+      },
+    );
+    const result = response.data.choices?.[0]?.message?.content?.trim();
+
+    if (!result) {
+      throw new Error('辅助模型返回内容为空');
+    }
+
+    return result;
+  }
+
+  /**
+   * 使用 Claude Messages 视觉消息格式分析图片。
+   */
+  private async callClaudeImageRecognition(
+    config: AssistantModelConfigEntity,
+    runtime: AssistantRuntime,
+    prompt: string,
+    image: ParsedImageDataUrl,
+  ) {
+    const response = await axios.post<ClaudeMessageResponse>(
+      runtime.url,
+      {
+        model: config.modelName,
+        max_tokens: 2400,
+        system: imageRecognitionSystemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: prompt,
+              },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: image.mimeType,
+                  data: image.base64Data,
+                },
+              },
+            ],
+          },
+        ],
+        temperature: 0.3,
+      },
+      {
+        headers: {
+          'x-api-key': runtime.apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        timeout: assistantRequestTimeoutMs,
+      },
+    );
+    const result = response.data.content
+      ?.find((item) => item.type === 'text' && item.text)
+      ?.text?.trim();
+
+    if (!result) {
+      throw new Error('辅助模型返回内容为空');
+    }
+
+    return result;
+  }
+
+  /**
+   * 从辅助模型配置中读取第三方请求运行时参数。
+   */
+  private getAssistantRuntime(config: AssistantModelConfigEntity) {
+    if (!config.url.trim()) {
+      throw new BadRequestException('辅助模型缺少请求地址');
+    }
+
+    const apiKey = decryptSecret(config.apiKeyEncrypted);
+
+    if (!apiKey) {
+      throw new BadRequestException('辅助模型缺少 API key');
+    }
+
+    return {
+      apiKey,
+      url: config.url.trim(),
+    };
   }
 
   /**
@@ -278,6 +476,23 @@ function toProviderErrorMessage(error: unknown) {
   }
 
   return error instanceof Error ? error.message : '未知错误';
+}
+
+/**
+ * 解析前端上传的图片 data URL，供不同视觉模型协议复用。
+ */
+function parseImageDataUrl(dataUrl: string): ParsedImageDataUrl {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
+
+  if (!match) {
+    throw new BadRequestException('图片格式不正确');
+  }
+
+  return {
+    base64Data: match[2],
+    dataUrl,
+    mimeType: match[1],
+  };
 }
 
 /**

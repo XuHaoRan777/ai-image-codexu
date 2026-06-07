@@ -167,6 +167,121 @@ describe('PromptOptimizerService', () => {
       }),
     );
   });
+
+  it('uses OpenAI vision message format to recognize an image', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        choices: [
+          {
+            message: {
+              content: 'image analysis result',
+            },
+          },
+        ],
+      },
+    });
+
+    await service.updateAssistantConfig({
+      mode: 'openai',
+      url: 'https://api.example.com/v1/chat/completions',
+      apiKey: 'sk-openai',
+      modelName: 'gpt-vision',
+      enabled: true,
+    });
+
+    const result = await service.recognizeImage({
+      imageDataUrl: 'data:image/png;base64,aW1hZ2U=',
+      prompt: '识别图片',
+    });
+
+    expect(result.result).toBe('image analysis result');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://api.example.com/v1/chat/completions',
+      expect.objectContaining({
+        model: 'gpt-vision',
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: '识别图片',
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: 'data:image/png;base64,aW1hZ2U=',
+                },
+              },
+            ],
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer sk-openai',
+        }),
+      }),
+    );
+  });
+
+  it('uses Claude image content format to recognize an image', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        content: [
+          {
+            type: 'text',
+            text: 'claude image analysis',
+          },
+        ],
+      },
+    });
+
+    await service.updateAssistantConfig({
+      mode: 'claude',
+      url: 'https://claude.example.com/v1/messages',
+      apiKey: 'sk-claude',
+      modelName: 'claude-vision',
+      enabled: true,
+    });
+
+    const result = await service.recognizeImage({
+      imageDataUrl: 'data:image/jpeg;base64,aW1hZ2U=',
+      prompt: '分析商品',
+    });
+
+    expect(result.result).toBe('claude image analysis');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://claude.example.com/v1/messages',
+      expect.objectContaining({
+        model: 'claude-vision',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: '分析商品',
+              },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/jpeg',
+                  data: 'aW1hZ2U=',
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-api-key': 'sk-claude',
+        }),
+      }),
+    );
+  });
 });
 
 /**

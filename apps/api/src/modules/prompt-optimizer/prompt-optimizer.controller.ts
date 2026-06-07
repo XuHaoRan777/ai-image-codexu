@@ -1,9 +1,11 @@
 import { Body, Controller, Get, Post, Put } from '@nestjs/common';
 import type {
+  ImageRecognitionRequest,
   PromptOptimizeRequest,
   UpdateAssistantModelConfigInput,
 } from '@ai-image-codexu/shared';
 import {
+  imageRecognitionRequestSchema,
   promptOptimizeRequestSchema,
   updateAssistantModelConfigSchema,
 } from '@ai-image-codexu/shared';
@@ -43,6 +45,16 @@ export class PromptOptimizerController {
   async optimizePrompt(@Body() body: PromptOptimizeRequest) {
     return this.promptOptimizerService.optimizePrompt(
       promptOptimizeRequestSchema.parse(body),
+    );
+  }
+
+  @Post('image/recognize')
+  /**
+   * 校验请求并返回无持久化图片理解结果。
+   */
+  async recognizeImage(@Body() body: ImageRecognitionRequest) {
+    return this.promptOptimizerService.recognizeImage(
+      imageRecognitionRequestSchema.parse(body),
     );
   }
 }

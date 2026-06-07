@@ -4,6 +4,7 @@ import type {
   CreateImageJobInput,
   CreateImageModelConfigInput,
   ImageJob,
+  ImageRecognitionResponse,
   ImageModelConfig,
   PromptOptimizeResponse,
   UpdateAssistantModelConfigInput,
@@ -101,6 +102,11 @@ export const api = {
     request<PromptOptimizeResponse>("/prompt/optimize", {
       method: "POST",
       data: { prompt },
+    }),
+  recognizeImage: (input: { imageDataUrl: string; prompt: string }) =>
+    request<ImageRecognitionResponse>("/image/recognize", {
+      method: "POST",
+      data: input,
     }),
   createImageJob: (input: CreateImageJobInput) =>
     request<ImageJob>("/image-jobs", {
