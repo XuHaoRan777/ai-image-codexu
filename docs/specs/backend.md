@@ -45,6 +45,7 @@ apps/api/src/
 - `POST /api/image-jobs`
 - `GET /api/image-jobs`
 - `GET /api/image-jobs/:id`
+- `DELETE /api/image-jobs/:id`
 - `GET /api/images/*path`
 
 `POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `aspectRatio` 支持 `auto`、`1:1`、`4:3`、`3:4`、`16:9`、`9:16`，`resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
@@ -141,6 +142,7 @@ export class EntityName {
 - 识图接口请求体通过 JSON 接收单张图片 data URL，API JSON body limit 为 30MB；后端只在请求生命周期内解析图片，不写入本地存储或数据库。
 - 每个生图来源在 `image-generation.providers.ts` 中维护独立完整的 provider 方法；即使协议字段相似，也不通过“兼容协议中间方法”隐藏 URL、path、headers 和请求体差异。每个来源的固定 base URL 直接写在对应 provider 方法内部，`generate` 分发使用 shared 的 `ImageProviderTypeEnum`，不使用裸字符串 `case`。
 - `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。`GET /api/image-jobs` 按创建时间倒序返回持久化历史列表。
+- `DELETE /api/image-jobs/:id` 对历史任务执行硬删除，不做逻辑删除；接口会删除 `image_job` 数据库记录，并根据记录里的 `imageUrl` / `imageUrls` 清理对应 `/api/images/*` 本地文件。文件不存在时不阻塞记录删除；任务记录不存在时返回 404。
 - 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。AiCodeWith 由后端根据任务参数决定真实请求模型：分辨率为 `1k` 且数量为 1 时使用 `gpt-image-2-beta`，其它情况使用 `gpt-image-2`。
 - OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断；`aspectRatio = auto` 时 `size` 传 `auto`。
 - Google 使用 Gemini 图像生成协议：基础地址写在后端 provider 方法内，后端拼接 `{modelName}:generateContent`，通过 `x-goog-api-key` 鉴权；`aspectRatio = auto` 时不发送固定 `imageConfig.aspectRatio`。
@@ -148,6 +150,7 @@ export class EntityName {
 - AiCodeWith 使用固定地址 `https://api.aicodewith.com`：先 `POST /v1/images/generations` 创建生图任务，再每 5 秒 `GET /v1/tasks/{taskId}` 轮询，完成后下载 `result_data[].url` 并保存到本地。请求模型由后端自动判断，使用 `gpt-image-2-beta` 时只发送 `model`、`prompt`、`size`，不发送 `resolution`、`n`、`quality`；使用 `gpt-image-2` 时发送 `model`、`prompt`、`size`、`resolution`、`n`、`quality`。当前前端参考图是 base64 data URL，而 AiCodeWith 图生图要求公网可访问 `image_urls`，因此该来源暂不支持本地参考图上传，后端会在发起第三方请求前返回明确错误。
 - provider 请求超时时间为 5 分钟。请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志使用多行缩进 JSON，若第三方响应体是 JSON 字符串会先解析为对象再输出；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
 - 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。
+- 删除历史任务时，后端只允许从 `/api/images/*` 公开 URL 还原存储根目录下的相对路径并删除对应文件，必须继续防止目录穿越和误删存储根目录外文件。
 
 ## 图片本地路径规划
 

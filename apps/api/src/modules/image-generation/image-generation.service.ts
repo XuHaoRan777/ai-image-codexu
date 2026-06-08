@@ -204,6 +204,29 @@ export class ImageGenerationService {
   }
 
   /**
+   * 删除指定生图任务记录，并清理它关联的本地图片文件。
+   */
+  async deleteImageJob(id: string) {
+    const job = await this.imageJobRepository.findOneBy({ id });
+
+    if (!job) {
+      return false;
+    }
+
+    const imageUrls = collectImageJobUrls(job);
+
+    await Promise.all(
+      imageUrls.map((imageUrl) =>
+        this.imageStorageService.deleteImageByPublicUrl(imageUrl),
+      ),
+    );
+
+    const result = await this.imageJobRepository.delete({ id });
+
+    return (result.affected ?? 0) > 0;
+  }
+
+  /**
    * 执行真实 provider 请求，并把生成图片保存到本地存储。
    */
   private async runImageJob(
@@ -320,8 +343,13 @@ export class ImageGenerationService {
       updatedAt: Date;
     }>,
   ) {
+    const result = await this.imageJobRepository.update({ id: job.id }, input);
+
+    if ((result.affected ?? 0) === 0) {
+      return;
+    }
+
     Object.assign(job, input);
-    await this.imageJobRepository.save(job);
   }
 }
 
@@ -353,4 +381,16 @@ function mimeTypeToExtension(mimeType: string) {
     default:
       return 'png';
   }
+}
+
+/**
+ * 收集任务关联的全部公开图片 URL 并去重。
+ */
+function collectImageJobUrls(job: Pick<ImageJobEntity, 'imageUrl' | 'imageUrls'>) {
+  return Array.from(
+    new Set([
+      ...(job.imageUrls ?? []),
+      ...(job.imageUrl ? [job.imageUrl] : []),
+    ]),
+  );
 }

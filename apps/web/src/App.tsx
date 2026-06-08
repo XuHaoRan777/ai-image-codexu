@@ -105,6 +105,7 @@ function App() {
   const [optimizingPrompt, setOptimizingPrompt] = useState(false)
   const [creatingJob, setCreatingJob] = useState(false)
   const [pollingJobId, setPollingJobId] = useState("")
+  const [deletingHistoryJobId, setDeletingHistoryJobId] = useState("")
   const [updatingAssistantEnabled, setUpdatingAssistantEnabled] =
     useState(false)
   const [updatingConfigEnabledId, setUpdatingConfigEnabledId] = useState("")
@@ -218,7 +219,21 @@ function App() {
               )
             }
           })
-          .catch(() => {
+          .catch((error: Error) => {
+            if (error.message.includes("生图任务不存在")) {
+              setLastJob((currentJob) =>
+                currentJob?.id === id ? null : currentJob,
+              )
+              setHistoryJobs((current) =>
+                current.filter((job) => job.id !== id),
+              )
+              setPollingJobId((currentId) =>
+                currentId === id ? "" : currentId,
+              )
+              generationLockedRef.current = false
+              return
+            }
+
             setPollingJobId((currentId) =>
               currentId === id ? "" : currentId,
             )
@@ -230,6 +245,29 @@ function App() {
     },
     [rememberJob],
   )
+
+  async function deleteHistoryJob(id: string) {
+    if (deletingHistoryJobId) {
+      return
+    }
+
+    setDeletingHistoryJobId(id)
+
+    try {
+      await api.deleteImageJob(id)
+      setHistoryJobs((current) => current.filter((job) => job.id !== id))
+      setSelectedHistoryJobId((currentId) =>
+        currentId === id ? "" : currentId,
+      )
+      setLastJob((currentJob) => (currentJob?.id === id ? null : currentJob))
+      setPollingJobId((currentId) => (currentId === id ? "" : currentId))
+      toast.success("历史记录已删除")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除历史记录失败")
+    } finally {
+      setDeletingHistoryJobId("")
+    }
+  }
 
   function resetImageConfigForm() {
     setImageConfigForm(initialImageConfigForm)
@@ -695,6 +733,8 @@ function App() {
                 historyJobs={historyJobs}
                 selectedHistoryJob={selectedHistoryJob}
                 selectedHistoryJobId={selectedHistoryJobId}
+                deletingHistoryJobId={deletingHistoryJobId}
+                onDeleteHistoryJob={deleteHistoryJob}
                 onSelectHistoryJob={setSelectedHistoryJobId}
               />
             ) : view === "recognize" ? (

@@ -12,11 +12,13 @@ describe('ImageGenerationService', () => {
   let jobRepository: Repository<ImageJobEntity>;
   let dispatcher: ImageProviderDispatcher;
   let service: ImageGenerationService;
+  let deletedImageUrls: string[];
 
   beforeEach(() => {
     jest.useFakeTimers();
     modelRepository = createMemoryRepository<ImageModelConfigEntity>();
     jobRepository = createMemoryRepository<ImageJobEntity>();
+    deletedImageUrls = [];
     dispatcher = {
       generate: jest.fn(async () => [
         {
@@ -31,6 +33,10 @@ describe('ImageGenerationService', () => {
       {
         saveImage: async (relativePath: string) => `/api/images/${relativePath}`,
         toPublicUrl: (relativePath: string) => `/api/images/${relativePath}`,
+        deleteImageByPublicUrl: async (publicUrl: string) => {
+          deletedImageUrls.push(publicUrl);
+          return true;
+        },
       } as ImageStorageService,
       dispatcher,
     );
@@ -231,6 +237,38 @@ describe('ImageGenerationService', () => {
     expect(updated?.status).toBe('failed');
     expect(updated?.errorMessage).toBe('provider failed');
   });
+
+  it('deletes image jobs and their stored image files', async () => {
+    const timestamp = new Date();
+
+    await jobRepository.save({
+      id: 'job-delete',
+      configId: 'config-1',
+      configName: 'custom',
+      providerType: ImageProviderTypeEnum.OpenAI,
+      modelName: 'gpt-image-2',
+      prompt: 'test prompt',
+      aspectRatio: '1:1',
+      resolution: '1k',
+      quantity: 2,
+      status: 'succeeded',
+      imageUrl: '/api/images/generated/job-delete-1.png',
+      imageUrls: [
+        '/api/images/generated/job-delete-1.png',
+        '/api/images/generated/job-delete-2.png',
+      ],
+      errorMessage: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    } as ImageJobEntity);
+
+    await expect(service.deleteImageJob('job-delete')).resolves.toBe(true);
+    await expect(jobRepository.findOneBy({ id: 'job-delete' })).resolves.toBeNull();
+    expect(deletedImageUrls).toEqual([
+      '/api/images/generated/job-delete-1.png',
+      '/api/images/generated/job-delete-2.png',
+    ]);
+  });
 });
 
 /**
@@ -275,6 +313,16 @@ function createMemoryRepository<T extends { id: string; createdAt: Date }>() {
       }
 
       items.splice(index, 1);
+      return { affected: 1 };
+    }),
+    update: jest.fn(async (where: Partial<T>, input: Partial<T>) => {
+      const item = items.find((entity) => entity.id === where.id);
+
+      if (!item) {
+        return { affected: 0 };
+      }
+
+      Object.assign(item, input);
       return { affected: 1 };
     }),
   } as unknown as Repository<T>;

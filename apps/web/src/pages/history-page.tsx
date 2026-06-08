@@ -1,9 +1,10 @@
 import { useState } from "react"
 import type { ImageJob, ImageJobStatus } from "@ai-image-codexu/shared"
-import { Expand, History, ImagePlus } from "lucide-react"
+import { Expand, History, ImagePlus, Loader2, Trash2 } from "lucide-react"
 
 import { EmptyPanel } from "@/components/empty-panel"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -26,10 +27,14 @@ import { cn } from "@/lib/utils"
 export function HistoryPage({
   historyJobs,
   onSelectHistoryJob,
+  onDeleteHistoryJob,
   selectedHistoryJob,
   selectedHistoryJobId,
+  deletingHistoryJobId,
 }: {
   historyJobs: ImageJob[]
+  deletingHistoryJobId: string
+  onDeleteHistoryJob: (id: string) => void
   onSelectHistoryJob: (id: string) => void
   selectedHistoryJob: ImageJob | null
   selectedHistoryJobId: string
@@ -60,44 +65,66 @@ export function HistoryPage({
         <CardContent className="pt-1 lg:min-h-0 lg:overflow-auto">
           {historyJobs.length > 0 ? (
             <div className="motion-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {historyJobs.map((job) => (
-                <button
-                  key={job.id}
-                  type="button"
-                  className={cn(
-                    "motion-hover-lift group/history rounded-lg border border-border/70 bg-background/45 p-2 text-left hover:border-emerald-300/35 hover:bg-emerald-300/10 focus-visible:ring-3 focus-visible:ring-ring/50",
-                    selectedHistoryJobId === job.id &&
-                      "border-emerald-300/45 bg-emerald-300/15",
-                  )}
-                  onClick={() => onSelectHistoryJob(job.id)}
-                >
-                  <div className="flex gap-3">
-                    <div className="flex aspect-square size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/40">
-                      {getImageJobUrls(job)[0] ? (
-                        <img
-                          src={getImageJobUrls(job)[0]}
-                          alt="历史生图缩略图"
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <ImagePlus className="size-6 text-muted-foreground transition-colors group-hover/history:text-emerald-100" />
-                      )}
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="truncate text-sm font-medium">
-                        {job.configName}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {providerTypeLabels[job.providerType]}
-                      </p>
-                      <div className="mt-3">
-                        <StatusBadge status={job.status} />
+              {historyJobs.map((job) => {
+                const deleting = deletingHistoryJobId === job.id
+
+                return (
+                  <div
+                    key={job.id}
+                    className={cn(
+                      "motion-hover-lift group/history grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border border-border/70 bg-background/45 p-2 hover:border-emerald-300/35 hover:bg-emerald-300/10",
+                      selectedHistoryJobId === job.id &&
+                        "border-emerald-300/45 bg-emerald-300/15",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 rounded-md text-left focus-visible:ring-3 focus-visible:ring-ring/50"
+                      onClick={() => onSelectHistoryJob(job.id)}
+                    >
+                      <div className="flex gap-3">
+                        <div className="flex aspect-square size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/40">
+                          {getImageJobUrls(job)[0] ? (
+                            <img
+                              src={getImageJobUrls(job)[0]}
+                              alt="历史生图缩略图"
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <ImagePlus className="size-6 text-muted-foreground transition-colors group-hover/history:text-emerald-100" />
+                          )}
+                        </div>
+                        <div className="min-w-0 py-1">
+                          <p className="truncate text-sm font-medium">
+                            {job.configName}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {providerTypeLabels[job.providerType]}
+                          </p>
+                          <div className="mt-3">
+                            <StatusBadge status={job.status} />
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </button>
+                    <Button
+                      className="self-start border-red-300/20 bg-red-500/8 text-red-200 opacity-75 hover:border-red-300/45 hover:bg-red-500/18 hover:text-red-100 hover:opacity-100 disabled:opacity-60"
+                      size="icon-sm"
+                      variant="outline"
+                      disabled={Boolean(deletingHistoryJobId)}
+                      onClick={() => onDeleteHistoryJob(job.id)}
+                      aria-label={`删除 ${job.configName} 历史记录`}
+                    >
+                      {deleting ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Trash2 />
+                      )}
+                    </Button>
                   </div>
-                </button>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <EmptyPanel icon={History} title="暂无历史" />

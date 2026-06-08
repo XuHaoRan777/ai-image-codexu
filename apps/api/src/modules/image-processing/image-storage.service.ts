@@ -5,8 +5,15 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import {
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from 'node:path';
 
 @Injectable()
 export class ImageStorageService implements OnModuleInit {
@@ -71,12 +78,47 @@ export class ImageStorageService implements OnModuleInit {
   }
 
   /**
+   * 根据公开 URL 删除存储根目录下的本地图片文件。
+   */
+  async deleteImageByPublicUrl(publicUrl: string) {
+    const relativePath = this.toRelativePathFromPublicUrl(publicUrl);
+
+    if (!relativePath) {
+      return false;
+    }
+
+    await rm(this.resolveLocalPath(relativePath), { force: true });
+    return true;
+  }
+
+  /**
+   * 将 /api/images/* 公开 URL 安全还原为图片相对路径。
+   */
+  toRelativePathFromPublicUrl(publicUrl: string) {
+    const trimmedUrl = publicUrl.trim();
+    const path = parsePublicImagePath(trimmedUrl);
+    const prefix = '/api/images/';
+
+    if (!path.startsWith(prefix)) {
+      return null;
+    }
+
+    try {
+      return this.normalizeRelativePath(
+        decodeURIComponent(path.slice(prefix.length)),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 规范化图片相对路径，并阻止目录穿越。
    */
   private normalizeRelativePath(relativePath: string) {
     const trimmedPath = relativePath.trim();
 
-    if (!trimmedPath) {
+    if (!trimmedPath || trimmedPath === '.') {
       throw new BadRequestException('图片路径不能为空');
     }
 
@@ -91,6 +133,30 @@ export class ImageStorageService implements OnModuleInit {
       throw new BadRequestException('图片路径不能越过存储根目录');
     }
 
+    const rootPath = this.getRootPath();
+    const localPath = resolve(rootPath, normalizedPath);
+    const rootRelativePath = relative(rootPath, localPath);
+
+    if (
+      rootRelativePath === '..' ||
+      rootRelativePath.startsWith(`..\\`) ||
+      rootRelativePath.startsWith('../') ||
+      isAbsolute(rootRelativePath)
+    ) {
+      throw new BadRequestException('图片路径不能越过存储根目录');
+    }
+
     return normalizedPath;
+  }
+}
+
+/**
+ * 从同源或绝对公开 URL 中提取 pathname。
+ */
+function parsePublicImagePath(publicUrl: string) {
+  try {
+    return new URL(publicUrl).pathname;
+  } catch {
+    return publicUrl.split(/[?#]/, 1)[0];
   }
 }

@@ -115,4 +115,8 @@ export const api = {
     }),
   listImageJobs: () => request<ImageJob[]>("/image-jobs"),
   getImageJob: (id: string) => request<ImageJob>(`/image-jobs/${id}`),
+  deleteImageJob: (id: string) =>
+    request<{ deleted: true }>(`/image-jobs/${id}`, {
+      method: "DELETE",
+    }),
 }

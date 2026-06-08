@@ -137,4 +137,18 @@ export class ImageGenerationController {
 
     return job;
   }
+
+  @Delete('image-jobs/:id')
+  /**
+   * 删除指定生图任务记录及其本地图片文件。
+   */
+  async deleteImageJob(@Param('id') id: string) {
+    const deleted = await this.imageGenerationService.deleteImageJob(id);
+
+    if (!deleted) {
+      throw new NotFoundException('生图任务不存在');
+    }
+
+    return { deleted: true as const };
+  }
 }
