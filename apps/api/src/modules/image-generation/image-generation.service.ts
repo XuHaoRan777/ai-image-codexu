@@ -281,13 +281,8 @@ export class ImageGenerationService {
         errorMessage: null,
         updatedAt: new Date(),
       });
-    } catch (error) {
-      await this.updateImageJob(job, {
-        status: 'failed',
-        errorMessage:
-          error instanceof Error ? error.message : '生图任务执行失败',
-        updatedAt: new Date(),
-      });
+    } catch {
+      await this.deleteImageJob(job.id);
     }
   }
 

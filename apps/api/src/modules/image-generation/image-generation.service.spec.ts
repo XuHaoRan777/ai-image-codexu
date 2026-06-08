@@ -212,7 +212,7 @@ describe('ImageGenerationService', () => {
     );
   });
 
-  it('marks image jobs failed when provider throws', async () => {
+  it('removes image job records when provider throws', async () => {
     jest
       .spyOn(dispatcher, 'generate')
       .mockRejectedValueOnce(new Error('provider failed'));
@@ -233,9 +233,8 @@ describe('ImageGenerationService', () => {
 
     await jest.runAllTimersAsync();
 
-    const updated = await service.getImageJob(job.id);
-    expect(updated?.status).toBe('failed');
-    expect(updated?.errorMessage).toBe('provider failed');
+    await expect(service.getImageJob(job.id)).resolves.toBeNull();
+    await expect(service.listImageJobs()).resolves.toEqual([]);
   });
 
   it('deletes image jobs and their stored image files', async () => {

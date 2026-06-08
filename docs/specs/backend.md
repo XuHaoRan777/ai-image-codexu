@@ -57,7 +57,7 @@ apps/api/src/
 - `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存完整请求地址 `url`、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
 - `POST /api/prompt/optimize` 必须读取已保存的 `assistant-config` 并调用真实辅助模型 provider；辅助模型未启用、缺少请求地址、缺少模型名或缺少可解密 API key 时返回明确错误，不在后端本地拼接假优化结果。
 - `POST /api/image/recognize` 复用同一条 `assistant-config`，只接收 `imageDataUrl` 与 `prompt`，返回 `{ result }`，不写入数据库、不保存图片文件、不产生历史记录。OpenAI 模式使用 Chat Completions 的 `image_url` 视觉消息格式，Claude 模式使用 Messages 的 base64 `image` 内容格式。
-- `image-jobs` 使用 `ImageJobEntity` 和 `image_job` 表持久化；创建任务时立即写入 `queued` 记录，后台执行 provider 请求时更新为 `running`，成功后写入 `image_url` / `image_urls`，失败后写入 `error_message`。生成记录不保存前端上传的参考图 base64，避免任务表膨胀。
+- `image-jobs` 使用 `ImageJobEntity` 和 `image_job` 表持久化；创建任务时立即写入 `queued` 记录，后台执行 provider 请求时更新为 `running`，成功后写入 `image_url` / `image_urls`。provider 或图片保存流程失败时硬删除该任务记录，不保留失败历史。生成记录不保存前端上传的参考图 base64，避免任务表膨胀。
 - 配置页不注入默认测试配置；`image_model_config` 空表时 `GET /api/image-model-configs` 返回空列表，配置必须来自真实创建请求或数据库记录。
 - API key 使用 AES-256-GCM 加密后入库。生产环境必须配置 `API_KEY_ENCRYPTION_SECRET` 或 `APP_SECRET`；开发环境未配置时使用固定开发 fallback。历史上只保存 `api_key_masked` 的记录无法反推原始密钥，需要在配置页重新填写密钥。
 
@@ -106,7 +106,7 @@ apps/api/src/
 - `model_name`：实际请求模型名
 - `prompt`：任务提示词
 - `aspect_ratio` / `resolution` / `quantity`：任务参数
-- `status`：`queued`、`running`、`succeeded`、`failed` 或 `canceled`
+- `status`：`queued`、`running`、`succeeded`、`failed` 或 `canceled`；新任务失败时不再保存 `failed` 记录，该状态仅兼容历史旧数据或外部导入数据
 - `image_url`：首张生成图片的本地访问地址，可为空
 - `image_urls`：所有生成图片的本地访问地址数组，可为空
 - `error_message`：任务失败错误信息，可为空
@@ -141,7 +141,7 @@ export class EntityName {
 - 辅助模型系统提示词必须以用户原意为最高优先级，只在不改变主体、动作、场景、风格、数量、视角和故事含义的前提下补充构图、镜头、光线、材质、质量和负面约束。
 - 识图接口请求体通过 JSON 接收单张图片 data URL，API JSON body limit 为 30MB；后端只在请求生命周期内解析图片，不写入本地存储或数据库。
 - 每个生图来源在 `image-generation.providers.ts` 中维护独立完整的 provider 方法；即使协议字段相似，也不通过“兼容协议中间方法”隐藏 URL、path、headers 和请求体差异。每个来源的固定 base URL 直接写在对应 provider 方法内部，`generate` 分发使用 shared 的 `ImageProviderTypeEnum`，不使用裸字符串 `case`。
-- `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`，失败后写入 `failed` 和 `errorMessage`。`GET /api/image-jobs` 按创建时间倒序返回持久化历史列表。
+- `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`。provider 或图片保存失败后删除任务记录，前端轮询该任务会收到 404；`GET /api/image-jobs` 按创建时间倒序只返回仍持久化的任务历史。
 - `DELETE /api/image-jobs/:id` 对历史任务执行硬删除，不做逻辑删除；接口会删除 `image_job` 数据库记录，并根据记录里的 `imageUrl` / `imageUrls` 清理对应 `/api/images/*` 本地文件。文件不存在时不阻塞记录删除；任务记录不存在时返回 404。
 - 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`modelName` 优先来自配置的 `model_name_override`，否则按来源类型使用默认值：OpenAI/OneTopAI 为 `gpt-image-2`，Google 为 `gemini-3.1-flash-image`，image-youyu 为 `image-youyu`。AiCodeWith 由后端根据任务参数决定真实请求模型：分辨率为 `1k` 且数量为 1 时使用 `gpt-image-2-beta`，其它情况使用 `gpt-image-2`。
 - OpenAI 官方和 OneTopAI 使用 OpenAI Images 兼容协议：基础地址写在后端 provider 方法内，无参考图时拼接 `/generations`，有参考图时拼接 `/edits`，由后端根据 `referenceImages` 判断；`aspectRatio = auto` 时 `size` 传 `auto`。

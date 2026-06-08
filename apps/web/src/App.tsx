@@ -110,6 +110,7 @@ function App() {
     useState(false)
   const [updatingConfigEnabledId, setUpdatingConfigEnabledId] = useState("")
   const generationLockedRef = useRef(false)
+  const userDeletedJobIdsRef = useRef(new Set<string>())
 
   const enabledConfigs = useMemo(
     () => imageConfigs.filter((config) => config.enabled),
@@ -221,6 +222,8 @@ function App() {
           })
           .catch((error: Error) => {
             if (error.message.includes("生图任务不存在")) {
+              const wasDeletedByUser = userDeletedJobIdsRef.current.has(id)
+
               setLastJob((currentJob) =>
                 currentJob?.id === id ? null : currentJob,
               )
@@ -231,6 +234,9 @@ function App() {
                 currentId === id ? "" : currentId,
               )
               generationLockedRef.current = false
+              if (!wasDeletedByUser) {
+                toast.error("生图失败")
+              }
               return
             }
 
@@ -252,6 +258,7 @@ function App() {
     }
 
     setDeletingHistoryJobId(id)
+    userDeletedJobIdsRef.current.add(id)
 
     try {
       await api.deleteImageJob(id)
@@ -266,6 +273,9 @@ function App() {
       toast.error(error instanceof Error ? error.message : "删除历史记录失败")
     } finally {
       setDeletingHistoryJobId("")
+      window.setTimeout(() => {
+        userDeletedJobIdsRef.current.delete(id)
+      }, imageJobPollIntervalMs * 2)
     }
   }
 
