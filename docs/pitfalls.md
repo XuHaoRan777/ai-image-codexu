@@ -1,5 +1,10 @@
 # Pitfalls
 
+## 2026-06-16 前端 API 地址不等于 Vite 服务端口
+
+- 问题：把前端请求地址改成 `VITE_API_BASE_URL` 或修改 API 代理目标，只会影响浏览器请求后端的 base URL，不会改变 Vite dev server 自己监听的端口。Vite 未配置 `server.port` 时仍会默认使用 5173。
+- 处理：本地 Web 端口必须在 `apps/web/vite.config.ts` 的 `server.port` 中配置；为了避免端口被占用时静默切到其它端口，配合 `strictPort: true`。后端端口和 Vite `/api` 代理目标需要同步维护。
+
 ## 2026-06-08 生图失败任务不要保留历史记录
 
 - 问题：生图任务创建时需要先写入 `queued` 记录供前端轮询，但如果 provider 或图片保存失败后继续把记录更新为 `failed`，历史页会出现失败任务。用户期望失败任务不保存数据库记录，也不出现在历史列表。

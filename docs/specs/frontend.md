@@ -121,7 +121,7 @@
 Web 默认地址：
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:3308/
 ```
 
 API 默认地址由 `VITE_API_BASE_URL` 控制，未配置时前端默认请求同源代理：
@@ -130,7 +130,7 @@ API 默认地址由 `VITE_API_BASE_URL` 控制，未配置时前端默认请求�
 /api
 ```
 
-开发环境 Vite 将 `/api` 代理到 `http://localhost:3011`，用于让后端返回的 `/api/images/*path` 图片地址在前端开发服务器下正常加载。
+开发环境 Vite 将 `/api` 代理到 `http://localhost:3307`，用于让后端返回的 `/api/images/*path` 图片地址在前端开发服务器下正常加载。
 
 ## 验证命令
 

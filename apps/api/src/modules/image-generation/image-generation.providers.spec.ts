@@ -359,9 +359,7 @@ describe('ImageProviderDispatcher', () => {
     const loggerSpy = jest
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
-    const providerError = new AxiosError(
-      'Request failed with status code 400',
-    );
+    const providerError = new AxiosError('Request failed with status code 400');
     Object.assign(providerError, {
       response: {
         status: 400,
