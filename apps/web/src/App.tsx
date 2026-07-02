@@ -69,9 +69,34 @@ function readViewFromHash(): View {
 
 const initialImageConfigForm: CreateImageModelConfigInput = {
   name: "",
-  providerType: ImageProviderTypeEnum.OneTopAI,
+  providerType: ImageProviderTypeEnum.OpenAICompatible,
+  deliveryMode: "sync",
+  baseUrl: "",
+  generationPath: "/v1/images/generations",
+  editPath: "/v1/images/edits",
   apiKey: "",
-  modelNameOverride: "",
+  modelName: "gpt-image-2",
+  fieldMapping: {},
+  fieldOverrides: {
+    model: true,
+    prompt: true,
+    size: true,
+    quantity: true,
+    quality: true,
+    resolution: false,
+    responseFormat: true,
+    image: true,
+  },
+  pollingConfig: {
+    taskIdPath: "id",
+    pollPathTemplate: "/v1/tasks/{taskId}",
+    statusPath: "status",
+    successStatusValue: "completed",
+    failureStatusValue: "failed",
+    resultUrlsPath: "result_data[].url",
+    intervalMs: 5000,
+    timeoutMs: 300000,
+  },
   enabled: true,
 }
 
@@ -294,8 +319,16 @@ function App() {
     setImageConfigForm({
       name: config.name,
       providerType: config.providerType,
+      deliveryMode: config.deliveryMode,
+      baseUrl: config.baseUrl,
+      generationPath: config.generationPath ?? "",
+      editPath: config.editPath ?? "",
       apiKey: "",
-      modelNameOverride: config.modelNameOverride ?? "",
+      // Google 模式配置的 modelName 可能为空,兜底空串避免受控输入告警
+      modelName: config.modelName ?? "",
+      fieldMapping: config.fieldMapping ?? {},
+      fieldOverrides: config.fieldOverrides ?? {},
+      pollingConfig: config.pollingConfig ?? initialImageConfigForm.pollingConfig,
       enabled: config.enabled,
     })
     setEditingConfigId(config.id)

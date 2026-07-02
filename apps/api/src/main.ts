@@ -12,7 +12,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   // 获取配置服务
   const configService = app.get(ConfigService);
-  const defaultPort = 3307;
+  const defaultPort = 3007;
   const prot = Number(configService.get('PORT')) || defaultPort;
   app.use(json({ limit: '30mb' }));
   app.use(urlencoded({ extended: true, limit: '30mb' }));

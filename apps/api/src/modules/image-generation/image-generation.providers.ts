@@ -1,6 +1,10 @@
 import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import type {
   AspectRatio,
+  ImageProviderDeliveryMode,
+  ImageProviderFieldMapping,
+  ImageProviderFieldOverrides,
+  ImageProviderPollingConfig,
   ImageProviderType,
   ImageQuantity,
   ImageResolution,
@@ -10,16 +14,29 @@ import axios, { AxiosError } from 'axios';
 
 export type ImageProviderRequest = {
   providerType: ImageProviderType;
+  deliveryMode: ImageProviderDeliveryMode;
   apiKey: string;
-  modelName: string;
+  baseUrl: string;
+  generationPath?: string;
+  editPath?: string;
+  // Google 模式模型名已包含在完整请求地址(baseUrl)里,故此处可选
+  modelName?: string;
   prompt: string;
   aspectRatio: AspectRatio;
   resolution: ImageResolution;
   quantity: ImageQuantity;
   referenceImages?: string[];
+  fieldMapping?: ImageProviderFieldMapping;
+  fieldOverrides?: ImageProviderFieldOverrides;
+  pollingConfig?: ImageProviderPollingConfig;
 };
 
 const providerLogger = new Logger('ImageProviderDispatcher');
+const defaultProviderTimeoutMs = 300_000;
+const defaultOpenAiGenerationPath = '/v1/images/generations';
+const defaultOpenAiEditPath = '/v1/images/edits';
+const defaultPollingIntervalMs = 5_000;
+const defaultPollingTimeoutMs = 300_000;
 
 type GeneratedImage = {
   content: Buffer;
@@ -48,293 +65,121 @@ type GeminiImageResponse = {
   }>;
 };
 
-type AiCodeWithCreateTaskResponse = {
-  id?: string;
-  task_id?: string;
-};
-
-type AiCodeWithTaskResponse = {
-  status?: string;
-  progress?: number;
-  result_data?: Array<{
-    url?: string;
-  }>;
-  error?: unknown;
-  message?: unknown;
-};
-
 @Injectable()
 export class ImageProviderDispatcher {
   /**
-   * 根据来源类型分发生图请求到对应 provider 方法。
+   * 根据协议类型和交付方式生成图片。
    */
   async generate(request: ImageProviderRequest) {
     switch (request.providerType) {
-      case ImageProviderTypeEnum.OpenAI:
-        return this.callOpenAi(request);
-      case ImageProviderTypeEnum.OneTopAI:
-        return this.callOneTopAi(request);
-      case ImageProviderTypeEnum.ImageYouyu:
-        return this.callImageYouyu(request);
-      case ImageProviderTypeEnum.AiCodeWith:
-        return this.callAiCodeWith(request);
-      case ImageProviderTypeEnum.Google:
-        return this.callGoogleGeminiImage(request);
+      case ImageProviderTypeEnum.OpenAICompatible:
+        return this.generateOpenAiCompatible(request);
+      case ImageProviderTypeEnum.GoogleCompatible:
+        return this.generateGoogleCompatible(request);
     }
   }
 
   /**
-   * 调用 OpenAI 官方图片生成接口。
+   * 组装 OpenAI Images 兼容请求，并支持同步响应或任务轮询响应。
    */
-  private async callOpenAi(
-    request: ImageProviderRequest,
-  ): Promise<GeneratedImage[]> {
-    const baseUrl = 'https://api.openai.com/v1/images';
+  private async generateOpenAiCompatible(request: ImageProviderRequest) {
+    const response = request.referenceImages?.length
+      ? await this.createOpenAiEdit(request)
+      : await this.createOpenAiGeneration(request);
 
-    if (request.referenceImages?.length) {
-      const form = new FormData();
-      form.set('model', request.modelName);
-      form.set('prompt', request.prompt);
-      form.set('n', String(request.quantity));
-      form.set('size', toOpenAiSize(request.aspectRatio, request.resolution));
-
-      request.referenceImages.forEach((image, index) => {
-        const parsed = parseDataUrl(image);
-        form.append(
-          'image',
-          new Blob([parsed.content], { type: parsed.mimeType }),
-          `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
-        );
+    if (request.deliveryMode === 'polling') {
+      const imageUrls = await pollProviderTask(response, request);
+      return this.extractOpenAiLikeImages({
+        data: imageUrls.map((url) => ({ url })),
       });
-
-      const response = await postWithProviderError<OpenAiImageResponse>(
-        joinUrl(baseUrl, 'edits'),
-        form,
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-        },
-      );
-
-      return this.extractOpenAiLikeImages(response);
     }
 
-    const response = await postWithProviderError<OpenAiImageResponse>(
-      joinUrl(baseUrl, 'generations'),
-      {
-        model: request.modelName,
-        prompt: request.prompt,
-        n: request.quantity,
-        size: toOpenAiSize(request.aspectRatio, request.resolution),
-      },
+    return this.extractOpenAiLikeImages(response as OpenAiImageResponse);
+  }
+
+  /**
+   * 组装 OpenAI-compatible 文生图 JSON 请求。
+   */
+  private createOpenAiGeneration(request: ImageProviderRequest) {
+    const body = buildMappedBody(request, {
+      // OpenAI 模式的 modelName 必填由 shared schema 保证,此处兜底消除可选类型报错
+      model: request.modelName ?? '',
+      prompt: request.prompt,
+      quantity: request.quantity,
+      size: toOpenAiSize(request.aspectRatio, request.resolution),
+      quality: toOpenAiQuality(request.resolution),
+      responseFormat: 'b64_json',
+    });
+    const url = joinUrl(
+      request.baseUrl,
+      request.generationPath || defaultOpenAiGenerationPath,
+    );
+
+    logProviderRequest('json', url, body);
+
+    return postWithProviderError<unknown>(
+      url,
+      body,
       {
         Authorization: `Bearer ${request.apiKey}`,
         'Content-Type': 'application/json',
       },
     );
-
-    return this.extractOpenAiLikeImages(response);
   }
 
   /**
-   * 调用 OneTopAI 图片生成接口。
+   * 组装 OpenAI-compatible 图生图 multipart 请求。
    */
-  private async callOneTopAi(
-    request: ImageProviderRequest,
-  ): Promise<GeneratedImage[]> {
-    const baseUrl = 'https://www.onetopai.asia/v1/images';
+  private createOpenAiEdit(request: ImageProviderRequest) {
+    const form = new FormData();
+    const logBody: Record<string, unknown> = {};
+    const fields = buildMappedBody(request, {
+      // OpenAI 模式的 modelName 必填由 shared schema 保证,此处兜底消除可选类型报错
+      model: request.modelName ?? '',
+      prompt: request.prompt,
+      quantity: request.quantity,
+      size: toOpenAiSize(request.aspectRatio, request.resolution),
+      quality: toOpenAiQuality(request.resolution),
+      responseFormat: 'b64_json',
+    });
 
-    if (request.referenceImages?.length) {
-      const form = new FormData();
-      form.set('model', request.modelName);
-      form.set('prompt', request.prompt);
-      form.set('n', String(request.quantity));
-      form.set('size', toOpenAiSize(request.aspectRatio, request.resolution));
+    Object.entries(fields).forEach(([key, value]) => {
+      form.set(key, String(value));
+      logBody[key] = value;
+    });
 
-      request.referenceImages.forEach((image, index) => {
+    if (isFieldEnabled(request.fieldOverrides, 'image')) {
+      const imageFieldName = mapFieldName(request.fieldMapping, 'image');
+      const imageLogs: string[] = [];
+
+      request.referenceImages?.forEach((image, index) => {
         const parsed = parseDataUrl(image);
         form.append(
-          'image',
+          imageFieldName,
           new Blob([parsed.content], { type: parsed.mimeType }),
           `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
         );
+        imageLogs.push(truncateImageLogValue(image));
       });
 
-      const response = await postWithProviderError<OpenAiImageResponse>(
-        joinUrl(baseUrl, 'edits'),
-        form,
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-        },
-      );
-
-      return this.extractOpenAiLikeImages(response);
-    }
-
-    const response = await postWithProviderError<OpenAiImageResponse>(
-      joinUrl(baseUrl, 'generations'),
-      {
-        model: request.modelName,
-        prompt: request.prompt,
-        n: request.quantity,
-        size: toOpenAiSize(request.aspectRatio, request.resolution),
-      },
-      {
-        Authorization: `Bearer ${request.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    );
-
-    return this.extractOpenAiLikeImages(response);
-  }
-
-  /**
-   * 调用 image-youyu 图片接口；该来源请求体不发送 model 字段。
-   */
-  private async callImageYouyu(
-    request: ImageProviderRequest,
-  ): Promise<GeneratedImage[]> {
-    const baseUrl = 'https://image.youyu.help/v1/images';
-    const size = toImageYouyuSize(request.aspectRatio);
-    const quality = toImageYouyuQuality(request.resolution);
-
-    if (request.referenceImages?.length) {
-      const form = new FormData();
-      form.set('prompt', request.prompt);
-      form.set('quality', quality);
-      form.set('size', size);
-      form.set('output_format', 'png');
-      form.set('n', String(request.quantity));
-
-      request.referenceImages.forEach((image, index) => {
-        const parsed = parseDataUrl(image);
-        form.append(
-          'image',
-          new Blob([parsed.content], { type: parsed.mimeType }),
-          `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
-        );
-      });
-
-      const response = await postWithProviderError<OpenAiImageResponse>(
-        joinUrl(baseUrl, 'edits'),
-        form,
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-        },
-      );
-
-      return this.extractOpenAiLikeImages(response);
-    }
-
-    const response = await postWithProviderError<OpenAiImageResponse>(
-      joinUrl(baseUrl, 'generations'),
-      {
-        prompt: request.prompt,
-        quality,
-        size,
-        output_format: 'png',
-        n: request.quantity,
-      },
-      {
-        Authorization: `Bearer ${request.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    );
-
-    return this.extractOpenAiLikeImages(response);
-  }
-
-  /**
-   * 调用 AiCodeWith 图像工作站接口；该来源先创建任务，再轮询任务结果 URL。
-   */
-  private async callAiCodeWith(
-    request: ImageProviderRequest,
-  ): Promise<GeneratedImage[]> {
-    const baseUrl = 'https://api.aicodewith.com';
-    const pollIntervalMs = 5_000;
-    const pollTimeoutMs = 300_000;
-
-    if (request.referenceImages?.length) {
-      throw new BadGatewayException(
-        'AiCodeWith 图生图需要公网可访问 image_urls，当前参考图上传暂不支持',
-      );
-    }
-
-    const model = resolveAiCodeWithModelName(request);
-    const createBody =
-      model === 'gpt-image-2-beta'
-        ? {
-            model,
-            prompt: request.prompt,
-            size: toAiCodeWithSize(request.aspectRatio),
-          }
-        : {
-            model,
-            prompt: request.prompt,
-            size: toAiCodeWithSize(request.aspectRatio),
-            resolution: toAiCodeWithResolution(request.resolution),
-            n: request.quantity,
-            quality: toAiCodeWithQuality(request.resolution),
-          };
-    const createResponse =
-      await postWithProviderError<AiCodeWithCreateTaskResponse>(
-        joinUrl(baseUrl, 'v1/images/generations'),
-        createBody,
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      );
-    const taskId = createResponse.id ?? createResponse.task_id;
-
-    if (!taskId) {
-      throw new BadGatewayException('AiCodeWith 生图接口未返回任务 ID');
-    }
-
-    const startedAt = Date.now();
-
-    while (Date.now() - startedAt <= pollTimeoutMs) {
-      const task = await getWithProviderError<AiCodeWithTaskResponse>(
-        joinUrl(baseUrl, `v1/tasks/${taskId}`),
-        {
-          Authorization: `Bearer ${request.apiKey}`,
-        },
-      );
-
-      if (task.status === 'completed') {
-        const urls =
-          task.result_data
-            ?.map((item) => item.url)
-            .filter((url): url is string => Boolean(url)) ?? [];
-
-        if (urls.length === 0) {
-          throw new BadGatewayException('AiCodeWith 生图任务未返回图片 URL');
-        }
-
-        return this.extractOpenAiLikeImages({
-          data: urls.map((url) => ({ url })),
-        });
+      if (imageLogs.length > 0) {
+        logBody[imageFieldName] = imageLogs;
       }
-
-      if (task.status === 'failed') {
-        logProviderResponsePayload(task);
-        throw new BadGatewayException(
-          extractProviderErrorMessage(task) ?? 'AiCodeWith 生图任务失败',
-        );
-      }
-
-      await delay(pollIntervalMs);
     }
 
-    throw new BadGatewayException('AiCodeWith 生图任务轮询超时');
+    const url = joinUrl(request.baseUrl, request.editPath || defaultOpenAiEditPath);
+
+    logProviderRequest('multipart/form-data', url, logBody);
+
+    return postWithProviderError<unknown>(url, form, {
+      Authorization: `Bearer ${request.apiKey}`,
+    });
   }
 
   /**
-   * 调用 Google Gemini 图像生成接口。
+   * 组装 Google Gemini-compatible generateContent 请求。
    */
-  private async callGoogleGeminiImage(
-    request: ImageProviderRequest,
-  ): Promise<GeneratedImage[]> {
-    const baseUrl = 'https://generativelanguage.googleapis.com/v1/models';
+  private async generateGoogleCompatible(request: ImageProviderRequest) {
     const parts: Array<Record<string, unknown>> = [{ text: request.prompt }];
 
     request.referenceImages?.forEach((image) => {
@@ -348,29 +193,27 @@ export class ImageProviderDispatcher {
     });
 
     const generationConfig: Record<string, unknown> = {
-      candidateCount: request.quantity,
       responseModalities: ['TEXT', 'IMAGE'],
     };
 
-    if (request.aspectRatio !== 'auto') {
-      generationConfig.imageConfig = {
-        aspectRatio: request.aspectRatio,
-      };
+    if (isFieldEnabled(request.fieldOverrides, 'quantity')) {
+      generationConfig.candidateCount = request.quantity;
     }
+    if (isFieldEnabled(request.fieldOverrides, 'size')) {
+      generationConfig.imageConfig = buildGeminiImageConfig(request);
+    }
+    // Google 模式的 baseUrl 已是含模型名与 :generateContent 的完整端点,直接使用,不再拼接
+    const url = request.baseUrl;
+    const body = {
+      contents: [{ parts }],
+      generationConfig,
+    };
+
+    logProviderRequest('json', url, truncateGoogleImageBody(body));
 
     const response = await postWithProviderError<GeminiImageResponse>(
-      joinUrl(
-        baseUrl,
-        `${request.modelName}:generateContent`,
-      ),
-      {
-        contents: [
-          {
-            parts,
-          },
-        ],
-        generationConfig,
-      },
+      url,
+      body,
       {
         'Content-Type': 'application/json',
         'x-goog-api-key': request.apiKey,
@@ -422,23 +265,120 @@ export class ImageProviderDispatcher {
       throw new BadGatewayException('生图接口未返回图片数据');
     }
 
-    return Promise.all(
-      images.map(async (image): Promise<GeneratedImage> => {
-        if (typeof image !== 'string') {
-          return image;
-        }
-
-        const response = await axios.get<ArrayBuffer>(image, {
-          responseType: 'arraybuffer',
-        });
-
-        return {
-          content: Buffer.from(response.data),
-          mimeType: String(response.headers['content-type'] ?? 'image/png'),
-        };
-      }),
-    );
+    return Promise.all(images.map(downloadRemoteImage));
   }
+}
+
+type StandardOpenAiFields = {
+  model: string;
+  prompt: string;
+  quantity: number;
+  size: string;
+  quality: string;
+  responseFormat: string;
+};
+
+/**
+ * 按字段映射和启用规则构造 OpenAI-compatible 请求体。
+ */
+function buildMappedBody(
+  request: Pick<ImageProviderRequest, 'fieldMapping' | 'fieldOverrides'>,
+  fields: StandardOpenAiFields,
+) {
+  const body: Record<string, string | number> = {};
+  const entries = [
+    ['model', fields.model],
+    ['prompt', fields.prompt],
+    ['quantity', fields.quantity],
+    ['size', fields.size],
+    ['quality', fields.quality],
+    ['responseFormat', fields.responseFormat],
+  ] as const;
+
+  entries.forEach(([field, value]) => {
+    if (!isFieldEnabled(request.fieldOverrides, field)) {
+      return;
+    }
+
+    body[mapFieldName(request.fieldMapping, field)] = value;
+  });
+
+  return body;
+}
+
+/**
+ * 构造 Gemini 图像配置，auto 尺寸时不发送固定 aspectRatio。
+ */
+function buildGeminiImageConfig(request: ImageProviderRequest) {
+  const imageConfig: Record<string, string> = {};
+
+  if (request.aspectRatio !== 'auto') {
+    imageConfig.aspectRatio = request.aspectRatio;
+  }
+
+  if (isFieldEnabled(request.fieldOverrides, 'resolution')) {
+    imageConfig.imageSize = toGeminiImageSize(request.resolution);
+  }
+
+  return imageConfig;
+}
+
+/**
+ * 轮询第三方异步任务并提取结果 URL。
+ */
+async function pollProviderTask(
+  createResponse: unknown,
+  request: ImageProviderRequest,
+) {
+  const config = request.pollingConfig ?? {};
+  const taskId = getStringByPath(createResponse, config.taskIdPath || 'id');
+
+  if (!taskId) {
+    throw new BadGatewayException('生图接口未返回任务 ID');
+  }
+
+  const pollPathTemplate = config.pollPathTemplate || '/v1/tasks/{taskId}';
+  const intervalMs = config.intervalMs ?? defaultPollingIntervalMs;
+  const timeoutMs = config.timeoutMs ?? defaultPollingTimeoutMs;
+  const statusPath = config.statusPath || 'status';
+  const successStatusValue = config.successStatusValue || 'completed';
+  const failureStatusValue = config.failureStatusValue || 'failed';
+  const resultUrlsPath = config.resultUrlsPath || 'result_data[].url';
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const task = await getWithProviderError<unknown>(
+      joinUrl(
+        request.baseUrl,
+        pollPathTemplate.replaceAll('{taskId}', encodeURIComponent(taskId)),
+      ),
+      {
+        Authorization: `Bearer ${request.apiKey}`,
+      },
+    );
+    const status = getStringByPath(task, statusPath);
+
+    if (status === successStatusValue) {
+      const urls = getStringArrayByPath(task, resultUrlsPath);
+
+      if (urls.length === 0) {
+        throw new BadGatewayException('生图任务未返回图片 URL');
+      }
+
+      return urls;
+    }
+
+    if (status === failureStatusValue) {
+      logProviderResponsePayload(task);
+      throw new BadGatewayException(
+        extractProviderErrorMessage(task) ?? '生图任务失败',
+      );
+    }
+
+    await delay(intervalMs);
+  }
+
+  throw new BadGatewayException('生图任务轮询超时');
 }
 
 /**
@@ -452,7 +392,7 @@ async function postWithProviderError<T>(
   try {
     const response = await axios.post<T>(url, data, {
       headers,
-      timeout: 300_000,
+      timeout: defaultProviderTimeoutMs,
     });
 
     return response.data;
@@ -475,7 +415,7 @@ async function getWithProviderError<T>(
   try {
     const response = await axios.get<T>(url, {
       headers,
-      timeout: 300_000,
+      timeout: defaultProviderTimeoutMs,
     });
 
     return response.data;
@@ -489,6 +429,24 @@ async function getWithProviderError<T>(
 }
 
 /**
+ * 下载远程图片 URL 并转换为本地可保存的二进制结构。
+ */
+async function downloadRemoteImage(image: OpenAiExtractedImage) {
+  if (typeof image !== 'string') {
+    return image;
+  }
+
+  const response = await axios.get<ArrayBuffer>(image, {
+    responseType: 'arraybuffer',
+  });
+
+  return {
+    content: Buffer.from(response.data),
+    mimeType: String(response.headers['content-type'] ?? 'image/png'),
+  };
+}
+
+/**
  * 将 axios provider 错误转换为后端网关错误，并输出格式化后的第三方响应摘要。
  */
 function toProviderGatewayException(error: AxiosError) {
@@ -499,6 +457,29 @@ function toProviderGatewayException(error: AxiosError) {
   logProviderResponsePayload(error.response?.data, error.response?.status);
 
   return new BadGatewayException(message);
+}
+
+/**
+ * 打印已经完成字段映射和请求体封装后的 provider 请求参数。
+ */
+function logProviderRequest(
+  contentType: string,
+  url: string,
+  body: Record<string, unknown>,
+) {
+  providerLogger.log(
+    '\n' +
+      JSON.stringify(
+        {
+          message: 'Provider image request',
+          contentType,
+          url,
+          body,
+        },
+        null,
+        2,
+      ),
+  );
 }
 
 /**
@@ -638,6 +619,26 @@ function parseDataUrl(value: string) {
 }
 
 /**
+ * 日志中的图片内容只保留前 25 位，避免输出完整 base64。
+ */
+function truncateImageLogValue(value: string) {
+  return value.length > 25 ? `${value.slice(0, 25)}...` : value;
+}
+
+/**
+ * Google 请求体中 inlineData.data 是 base64，日志里需要截断。
+ */
+function truncateGoogleImageBody<T>(body: T): T {
+  return JSON.parse(
+    JSON.stringify(body, (key, value) =>
+      key === 'data' && typeof value === 'string'
+        ? truncateImageLogValue(value)
+        : value,
+    ),
+  ) as T;
+}
+
+/**
  * 将图片 MIME 类型转换为上传文件名扩展名。
  */
 function mimeTypeToExtension(mimeType: string) {
@@ -651,6 +652,39 @@ function mimeTypeToExtension(mimeType: string) {
     default:
       return 'png';
   }
+}
+
+/**
+ * 将标准字段名映射为第三方字段名。
+ */
+function mapFieldName(
+  mapping: ImageProviderFieldMapping | undefined,
+  field: keyof NonNullable<ImageProviderFieldMapping>,
+) {
+  const mapped = mapping?.[field]?.trim();
+
+  if (mapped) {
+    return mapped;
+  }
+
+  switch (field) {
+    case 'quantity':
+      return 'n';
+    case 'responseFormat':
+      return 'response_format';
+    default:
+      return field;
+  }
+}
+
+/**
+ * 判断字段是否应发送；未配置时默认发送。
+ */
+function isFieldEnabled(
+  overrides: ImageProviderFieldOverrides | undefined,
+  field: keyof NonNullable<ImageProviderFieldOverrides>,
+) {
+  return overrides?.[field] ?? true;
 }
 
 /**
@@ -688,70 +722,24 @@ function toOpenAiSize(aspectRatio: AspectRatio, resolution: ImageResolution) {
 }
 
 /**
- * 将前端分辨率映射为 image-youyu 支持的 quality 参数。
+ * 将前端分辨率映射为兼容 OpenAI quality 的稳定值。
  */
-function toImageYouyuQuality(resolution: ImageResolution) {
+function toOpenAiQuality(resolution: ImageResolution) {
   switch (resolution) {
+    case '0.5k':
+      return 'low';
+    case '1k':
+      return 'medium';
     case '2k':
     case '4k':
-      return '2k';
-    case '0.5k':
-    case '1k':
-      return '1k';
+      return 'high';
   }
 }
 
 /**
- * 将前端尺寸映射为 image-youyu 支持的 size 参数。
+ * 将前端分辨率映射为 Gemini imageSize。
  */
-function toImageYouyuSize(aspectRatio: AspectRatio) {
-  switch (aspectRatio) {
-    case '4:3':
-    case '16:9':
-      return '1536x1024';
-    case '3:4':
-    case '9:16':
-      return '1024x1536';
-    case 'auto':
-    case '1:1':
-      return '1024x1024';
-  }
-}
-
-type AiCodeWithModelSelectionInput = {
-  resolution: ImageResolution;
-  quantity: number;
-};
-
-/**
- * 判断 AiCodeWith 是否应使用 gpt-image-2-beta 快速模型。
- */
-function shouldUseAiCodeWithBetaModel(request: AiCodeWithModelSelectionInput) {
-  return request.resolution === '1k' && request.quantity === 1;
-}
-
-/**
- * 根据当前请求参数决定 AiCodeWith 实际请求模型。
- */
-export function resolveAiCodeWithModelName(
-  request: AiCodeWithModelSelectionInput,
-) {
-  return shouldUseAiCodeWithBetaModel(request)
-    ? 'gpt-image-2-beta'
-    : 'gpt-image-2';
-}
-
-/**
- * 将前端尺寸映射为 AiCodeWith 支持的 size 参数。
- */
-function toAiCodeWithSize(aspectRatio: AspectRatio) {
-  return aspectRatio;
-}
-
-/**
- * 将前端分辨率映射为 AiCodeWith 支持的 resolution 参数。
- */
-function toAiCodeWithResolution(resolution: ImageResolution) {
+function toGeminiImageSize(resolution: ImageResolution) {
   switch (resolution) {
     case '0.5k':
     case '1k':
@@ -764,18 +752,56 @@ function toAiCodeWithResolution(resolution: ImageResolution) {
 }
 
 /**
- * 将前端分辨率映射为 AiCodeWith 支持的 quality 参数。
+ * 从对象中读取简单点路径或数组展开路径。
  */
-function toAiCodeWithQuality(resolution: ImageResolution) {
-  switch (resolution) {
-    case '0.5k':
-      return 'low';
-    case '1k':
-      return 'medium';
-    case '2k':
-    case '4k':
-      return 'high';
-  }
+function getStringByPath(payload: unknown, path: string) {
+  const value = getValuesByPath(payload, path)[0];
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * 从对象中读取字符串数组。
+ */
+function getStringArrayByPath(payload: unknown, path: string) {
+  return getValuesByPath(payload, path).filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+}
+
+/**
+ * 支持 `a.b` 与 `items[].url` 这类受控路径读取。
+ */
+function getValuesByPath(payload: unknown, path: string) {
+  const segments = path.split('.').filter(Boolean);
+  let values = [payload];
+
+  segments.forEach((segment) => {
+    const isArraySegment = segment.endsWith('[]');
+    const key = isArraySegment ? segment.slice(0, -2) : segment;
+    const nextValues: unknown[] = [];
+
+    values.forEach((value) => {
+      if (!value || typeof value !== 'object') {
+        return;
+      }
+
+      const nextValue = (value as Record<string, unknown>)[key];
+
+      if (isArraySegment) {
+        if (Array.isArray(nextValue)) {
+          nextValues.push(...nextValue);
+        }
+        return;
+      }
+
+      nextValues.push(nextValue);
+    });
+
+    values = nextValues;
+  });
+
+  return values;
 }
 
 /**

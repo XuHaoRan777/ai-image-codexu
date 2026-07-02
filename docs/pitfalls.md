@@ -1,5 +1,25 @@
 # Pitfalls
 
+## 2026-07-01 Google 模式的 baseUrl 是完整端点，与 OpenAI 语义相反
+
+- 问题：Google(Gemini)兼容协议的模型名嵌在 URL 路径里（形如 `.../models/gemini-3.1-flash-image-preview:generateContent`），不是请求体参数。此前后端用 `baseUrl + {modelName}:generateContent` 强行拼接，导致同一个「请求地址」字段在两种协议下语义相反：OpenAI-compatible 下它是域名（后端再拼 `/v1/images/generations`），Google-compatible 下它必须是完整端点。若前端只用一个统一的 label/placeholder，用户配 Google 时会照着域名示例只填一半，直接 404。
+- 处理：Google 分支后端直接用 `request.baseUrl` 作完整请求 URL，不再拼 `modelName`；`modelName` 改为「OpenAI 必填、Google 可空」的条件必填（在 shared schema 用 superRefine 按 `providerType` 校验，字段本身设为 optional，但不能从系统删除——OpenAI 仍要当请求体参数、`image_job` 也要存快照）。前端设置页在 Google 模式隐藏「模型名称」输入框、切协议到 Google 时清空默认模型名，并让「请求地址」的 label/placeholder 随 `providerType` 切换为完整端点形态。存量 Google 配置的 `base_url` 若只存了域名，改动后会失效，需手动补成完整端点。
+
+## 2026-07-01 Zod superRefine 会破坏 .partial() 派生
+
+- 问题：`updateImageModelConfigSchema` 通过 `createImageModelConfigSchema.partial()` 派生。若为了做「OpenAI 模式 modelName 必填」的跨字段校验，直接在 create schema 上挂 `.superRefine()`，该 schema 会变成 `ZodEffects`，而 `ZodEffects` 没有 `.partial()` 方法，update schema 直接编译报错。
+- 处理：把纯字段定义抽成独立的基础 object（`createImageModelConfigBaseSchema`），`createImageModelConfigSchema` = 基础 object + `.superRefine(...)`；`updateImageModelConfigSchema` 从**基础 object**（而非 refine 后的版本）派生 `.partial().extend(...).superRefine(...)`。update 侧的 refine 要先判断 `providerType === undefined`（部分更新时可能未提交）再校验，避免误报。
+
+## 2026-06-25 轮询型中转商不能只靠字段名映射解决
+
+- 问题：有些中转商请求体接近 OpenAI Images 协议，但响应不是同步返回图片，而是先返回任务 ID，再通过独立接口轮询结果。如果只做参数名映射，会把“请求协议”和“结果交付方式”混在一起，最终又退回每个厂商写一套 provider 特例。
+- 处理：生图配置需要同时表达 `providerType` 协议类型和 `deliveryMode` 交付模式。`openai-compatible` / `google-compatible` 只负责请求结构、鉴权头、图片上传方式和响应图片解析；`sync` / `polling` 负责结果交付。AiCodeWith 这类正常生图和低配生图应拆成两条模型配置，通过不同 `modelName` 与字段启用规则表达差异，通过 `pollingConfig` 表达任务 ID、状态和结果 URL 的读取路径。
+
+## 2026-06-25 中转商配置化后请求地址需要回到模型配置
+
+- 问题：此前为了避免前端暴露 provider 细节，生图配置不维护运营商请求地址。但当目标变为“只保留 OpenAI-compatible / Google-compatible 两个协议 provider，并通过配置接入第三方中转商”时，请求地址、路径和交付模式本身就是模型配置的一部分。
+- 处理：新的生图模型配置允许维护 `baseUrl`、OpenAI-compatible 的文生图/图生图路径、字段映射、字段启用规则和轮询配置。配置页仍不展示原始 API key，只展示掩码；业务代码仍不得硬编码图片存储路径或把第三方返回图片 URL 直接交给前端，生成结果必须先落到 `IMAGE_STORAGE_PATH` 再通过 `/api/images/*` 访问。
+
 ## 2026-06-16 前端 API 地址不等于 Vite 服务端口
 
 - 问题：把前端请求地址改成 `VITE_API_BASE_URL` 或修改 API 代理目标，只会影响浏览器请求后端的 base URL，不会改变 Vite dev server 自己监听的端口。Vite 未配置 `server.port` 时仍会默认使用 5173。

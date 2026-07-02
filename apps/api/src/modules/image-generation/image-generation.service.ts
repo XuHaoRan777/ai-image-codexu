@@ -6,30 +6,17 @@ import type {
   ImageJob,
   ImageJobStatus,
   ImageModelConfig,
-  ImageProviderType,
   ImageQuantity,
   UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from '@ai-image-codexu/shared';
-import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/maskSecret';
 import { decryptSecret, encryptSecret } from '../../common/utils/secretCrypto';
 import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
-import {
-  ImageProviderDispatcher,
-  resolveAiCodeWithModelName,
-} from './image-generation.providers';
-
-const defaultModelNames: Record<ImageProviderType, string> = {
-  [ImageProviderTypeEnum.OpenAI]: 'gpt-image-2',
-  [ImageProviderTypeEnum.Google]: 'gemini-3.1-flash-image',
-  [ImageProviderTypeEnum.OneTopAI]: 'gpt-image-2',
-  [ImageProviderTypeEnum.ImageYouyu]: 'image-youyu',
-  [ImageProviderTypeEnum.AiCodeWith]: 'gpt-image-2',
-};
+import { ImageProviderDispatcher } from './image-generation.providers';
 
 @Injectable()
 export class ImageGenerationService {
@@ -66,9 +53,16 @@ export class ImageGenerationService {
       id: crypto.randomUUID(),
       name: input.name,
       providerType: input.providerType,
+      deliveryMode: input.deliveryMode,
+      baseUrl: input.baseUrl,
+      generationPath: input.generationPath || null,
+      editPath: input.editPath || null,
       apiKeyMasked: apiKey ? (maskSecret(apiKey) ?? null) : null,
       apiKeyEncrypted: apiKey ? encryptSecret(apiKey) : null,
-      modelNameOverride: input.modelNameOverride || null,
+      modelName: input.modelName,
+      fieldMapping: input.fieldMapping ?? null,
+      fieldOverrides: input.fieldOverrides ?? null,
+      pollingConfig: input.pollingConfig ?? null,
       enabled: input.enabled,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -94,13 +88,34 @@ export class ImageGenerationService {
     if (input.providerType !== undefined) {
       existing.providerType = input.providerType;
     }
+    if (input.deliveryMode !== undefined) {
+      existing.deliveryMode = input.deliveryMode;
+    }
+    if (input.baseUrl !== undefined) {
+      existing.baseUrl = input.baseUrl;
+    }
+    if (input.generationPath !== undefined) {
+      existing.generationPath = input.generationPath || null;
+    }
+    if (input.editPath !== undefined) {
+      existing.editPath = input.editPath || null;
+    }
     if (input.apiKey !== undefined && input.apiKey.trim() !== '') {
       const apiKey = input.apiKey.trim();
       existing.apiKeyMasked = maskSecret(apiKey) ?? null;
       existing.apiKeyEncrypted = encryptSecret(apiKey);
     }
-    if (input.modelNameOverride !== undefined) {
-      existing.modelNameOverride = input.modelNameOverride || null;
+    if (input.modelName !== undefined) {
+      existing.modelName = input.modelName;
+    }
+    if (input.fieldMapping !== undefined) {
+      existing.fieldMapping = input.fieldMapping ?? null;
+    }
+    if (input.fieldOverrides !== undefined) {
+      existing.fieldOverrides = input.fieldOverrides ?? null;
+    }
+    if (input.pollingConfig !== undefined) {
+      existing.pollingConfig = input.pollingConfig ?? null;
     }
     if (input.enabled !== undefined) {
       existing.enabled = input.enabled;
@@ -156,13 +171,12 @@ export class ImageGenerationService {
     }
 
     const timestamp = new Date();
-    const modelName = resolveModelName(config, input);
     const job = this.imageJobRepository.create({
       id: crypto.randomUUID(),
       configId: config.id,
       configName: config.name,
       providerType: config.providerType,
-      modelName,
+      modelName: config.modelName,
       prompt: input.prompt,
       aspectRatio: input.aspectRatio,
       resolution: input.resolution,
@@ -252,16 +266,26 @@ export class ImageGenerationService {
         throw new Error('模型配置缺少 API key');
       }
 
-      const images = await this.imageProviderDispatcher.generate({
+      const providerRequest = {
         providerType: config.providerType,
+        deliveryMode: config.deliveryMode,
         apiKey,
+        baseUrl: config.baseUrl,
+        generationPath: config.generationPath ?? undefined,
+        editPath: config.editPath ?? undefined,
         modelName: job.modelName,
         prompt: job.prompt,
         aspectRatio: job.aspectRatio,
         resolution: job.resolution,
         quantity: job.quantity as ImageQuantity,
         referenceImages,
-      });
+        fieldMapping: config.fieldMapping ?? undefined,
+        fieldOverrides: config.fieldOverrides ?? undefined,
+        pollingConfig: config.pollingConfig ?? undefined,
+      };
+
+      const images =
+        await this.imageProviderDispatcher.generate(providerRequest);
 
       const imageUrls = await Promise.all(
         images.map((image, index) =>
@@ -294,8 +318,15 @@ export class ImageGenerationService {
       id: entity.id,
       name: entity.name,
       providerType: entity.providerType,
+      deliveryMode: entity.deliveryMode,
+      baseUrl: entity.baseUrl,
+      generationPath: entity.generationPath ?? undefined,
+      editPath: entity.editPath ?? undefined,
       apiKeyMasked: entity.apiKeyMasked ?? undefined,
-      modelNameOverride: entity.modelNameOverride ?? undefined,
+      modelName: entity.modelName,
+      fieldMapping: entity.fieldMapping ?? undefined,
+      fieldOverrides: entity.fieldOverrides ?? undefined,
+      pollingConfig: entity.pollingConfig ?? undefined,
       enabled: entity.enabled,
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
@@ -349,20 +380,6 @@ export class ImageGenerationService {
 }
 
 /**
- * 根据配置 override 或来源默认值决定任务实际记录的模型名。
- */
-function resolveModelName(
-  config: ImageModelConfigEntity,
-  input: Pick<CreateImageJobInput, 'resolution' | 'quantity'>,
-) {
-  if (config.providerType === ImageProviderTypeEnum.AiCodeWith) {
-    return resolveAiCodeWithModelName(input);
-  }
-
-  return config.modelNameOverride || defaultModelNames[config.providerType];
-}
-
-/**
  * 将图片 MIME 类型转换为本地文件扩展名。
  */
 function mimeTypeToExtension(mimeType: string) {
@@ -381,7 +398,9 @@ function mimeTypeToExtension(mimeType: string) {
 /**
  * 收集任务关联的全部公开图片 URL 并去重。
  */
-function collectImageJobUrls(job: Pick<ImageJobEntity, 'imageUrl' | 'imageUrls'>) {
+function collectImageJobUrls(
+  job: Pick<ImageJobEntity, 'imageUrl' | 'imageUrls'>,
+) {
   return Array.from(
     new Set([
       ...(job.imageUrls ?? []),

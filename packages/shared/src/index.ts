@@ -1,19 +1,26 @@
 import { z } from 'zod';
 
 export enum ImageProviderTypeEnum {
-  OpenAI = 'openai',
-  Google = 'google',
-  OneTopAI = 'onetopai',
-  ImageYouyu = 'image-youyu',
-  AiCodeWith = 'aicodewith',
+  OpenAICompatible = 'openai-compatible',
+  GoogleCompatible = 'google-compatible',
 }
 
 export const imageProviderTypes = [
-  ImageProviderTypeEnum.OpenAI,
-  ImageProviderTypeEnum.Google,
-  ImageProviderTypeEnum.OneTopAI,
-  ImageProviderTypeEnum.ImageYouyu,
-  ImageProviderTypeEnum.AiCodeWith,
+  ImageProviderTypeEnum.OpenAICompatible,
+  ImageProviderTypeEnum.GoogleCompatible,
+] as const;
+
+export const imageProviderDeliveryModes = ['sync', 'polling'] as const;
+
+export const imageProviderFieldKeys = [
+  'model',
+  'prompt',
+  'size',
+  'quantity',
+  'quality',
+  'resolution',
+  'responseFormat',
+  'image',
 ] as const;
 
 export const assistantProviderModes = ['openai', 'claude'] as const;
@@ -94,29 +101,123 @@ export const apiResponseSchema = <T extends z.ZodType>(dataSchema: T) =>
     data: dataSchema,
   });
 
+export const imageProviderFieldMappingSchema = z
+  .object({
+    model: z.string().optional(),
+    prompt: z.string().optional(),
+    size: z.string().optional(),
+    quantity: z.string().optional(),
+    quality: z.string().optional(),
+    resolution: z.string().optional(),
+    responseFormat: z.string().optional(),
+    image: z.string().optional(),
+  })
+  .optional();
+
+export const imageProviderFieldOverridesSchema = z
+  .object({
+    model: z.boolean().optional(),
+    prompt: z.boolean().optional(),
+    size: z.boolean().optional(),
+    quantity: z.boolean().optional(),
+    quality: z.boolean().optional(),
+    resolution: z.boolean().optional(),
+    responseFormat: z.boolean().optional(),
+    image: z.boolean().optional(),
+  })
+  .optional();
+
+export const imageProviderPollingConfigSchema = z
+  .object({
+    taskIdPath: z.string().optional(),
+    pollPathTemplate: z.string().optional(),
+    statusPath: z.string().optional(),
+    successStatusValue: z.string().optional(),
+    failureStatusValue: z.string().optional(),
+    resultUrlsPath: z.string().optional(),
+    intervalMs: z.number().int().min(1000).max(60000).optional(),
+    timeoutMs: z.number().int().min(10000).max(600000).optional(),
+  })
+  .optional();
+
+/**
+ * OpenAI 模式必须填模型名(作请求体参数);Google 模式模型名在完整请求地址里,可留空。
+ * 校验以 superRefine 挂在最外层,基础 object 单独抽出供 update schema 派生 partial。
+ */
+function requireModelNameForOpenAi(
+  value: { providerType: ImageProviderType; modelName?: string },
+  ctx: z.RefinementCtx,
+) {
+  if (
+    value.providerType === ImageProviderTypeEnum.OpenAICompatible &&
+    !value.modelName?.trim()
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: '模型名称不能为空',
+      path: ['modelName'],
+    });
+  }
+}
+
 export const imageModelConfigSchema = z.object({
   id: z.string(),
   name: z.string().min(1, '配置名称不能为空'),
   providerType: z.enum(imageProviderTypes),
+  deliveryMode: z.enum(imageProviderDeliveryModes),
+  baseUrl: z.url('请求地址格式不正确').or(z.literal('')),
+  generationPath: z.string().optional(),
+  editPath: z.string().optional(),
   apiKeyMasked: z.string().optional(),
-  modelNameOverride: z.string().optional(),
+  // Google 模式模型名在完整 URL 里,故整体可选;OpenAI 模式的必填由 create/update schema 校验
+  modelName: z.string().optional(),
+  fieldMapping: imageProviderFieldMappingSchema,
+  fieldOverrides: imageProviderFieldOverridesSchema,
+  pollingConfig: imageProviderPollingConfigSchema,
   enabled: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
 
-export const createImageModelConfigSchema = z.object({
+/**
+ * 生图模型配置的基础字段(不含条件校验)。
+ * 单独抽出是为了让 update schema 能安全地 .partial() ——
+ * 若直接对挂了 superRefine 的 schema 调用 .partial(),会因它变成 ZodEffects 而丢失 .partial()。
+ */
+const createImageModelConfigBaseSchema = z.object({
   name: z.string().min(1, '配置名称不能为空'),
   providerType: z.enum(imageProviderTypes),
+  deliveryMode: z.enum(imageProviderDeliveryModes),
+  baseUrl: z.url('请求地址格式不正确').or(z.literal('')),
+  generationPath: z.string().optional(),
+  editPath: z.string().optional(),
   apiKey: z.string().min(1, '密钥不能为空'),
-  modelNameOverride: z.string().optional(),
+  // Google 模式无需填,OpenAI 模式的必填由外层 superRefine 保证
+  modelName: z.string().optional(),
+  fieldMapping: imageProviderFieldMappingSchema,
+  fieldOverrides: imageProviderFieldOverridesSchema,
+  pollingConfig: imageProviderPollingConfigSchema,
   enabled: z.boolean(),
 });
 
-export const updateImageModelConfigSchema = createImageModelConfigSchema
+export const createImageModelConfigSchema =
+  createImageModelConfigBaseSchema.superRefine(requireModelNameForOpenAi);
+
+// 从基础 object(非 superRefine 版本)派生,才能正常 .partial()
+export const updateImageModelConfigSchema = createImageModelConfigBaseSchema
   .partial()
   .extend({
     apiKey: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    // 更新时 providerType 可能未提交,此时不校验 modelName
+    if (value.providerType === undefined) {
+      return;
+    }
+    requireModelNameForOpenAi(
+      { providerType: value.providerType, modelName: value.modelName },
+      ctx,
+    );
   });
 
 export const updateImageModelConfigEnabledSchema = z.object({
@@ -191,6 +292,9 @@ export const imageJobSchema = z.object({
 });
 
 export type ImageProviderType = (typeof imageProviderTypes)[number];
+export type ImageProviderDeliveryMode =
+  (typeof imageProviderDeliveryModes)[number];
+export type ImageProviderFieldKey = (typeof imageProviderFieldKeys)[number];
 export type AssistantProviderMode = (typeof assistantProviderModes)[number];
 export type ImageJobStatus = (typeof imageJobStatuses)[number];
 export type AspectRatio = (typeof aspectRatios)[number];
@@ -204,6 +308,15 @@ export type ApiResponse<T> = {
 };
 
 export type ImageModelConfig = z.infer<typeof imageModelConfigSchema>;
+export type ImageProviderFieldMapping = z.infer<
+  typeof imageProviderFieldMappingSchema
+>;
+export type ImageProviderFieldOverrides = z.infer<
+  typeof imageProviderFieldOverridesSchema
+>;
+export type ImageProviderPollingConfig = z.infer<
+  typeof imageProviderPollingConfigSchema
+>;
 export type CreateImageModelConfigInput = z.infer<
   typeof createImageModelConfigSchema
 >;

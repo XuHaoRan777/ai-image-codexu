@@ -226,10 +226,7 @@ export function HistoryPage({
                     label="来源"
                     value={providerTypeLabels[selectedHistoryJob.providerType]}
                   />
-                  <HistoryMeta
-                    label="模型"
-                    value={selectedHistoryJob.modelName}
-                  />
+                  {/* 模型名不再单独展示:配置名已由上方「模型配置」承担,且 Google 模式下模型名为空 */}
                   <HistoryMeta
                     label="尺寸"
                     value={aspectRatioLabels[selectedHistoryJob.aspectRatio]}

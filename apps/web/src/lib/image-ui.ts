@@ -3,6 +3,7 @@ import type {
   AspectRatio,
   ImageJob,
   ImageJobStatus,
+  ImageProviderDeliveryMode,
   ImageProviderType,
   ImageResolution,
 } from "@ai-image-codexu/shared"
@@ -22,19 +23,18 @@ export const assistantModeLabels: Record<AssistantProviderMode, string> = {
 }
 
 export const providerTypeLabels: Record<ImageProviderType, string> = {
-  [ImageProviderTypeEnum.OpenAI]: "OpenAI 官方",
-  [ImageProviderTypeEnum.Google]: "Google Gemini",
-  [ImageProviderTypeEnum.OneTopAI]: "OneTopAI",
-  [ImageProviderTypeEnum.ImageYouyu]: "image-youyu",
-  [ImageProviderTypeEnum.AiCodeWith]: "AiCodeWith",
+  [ImageProviderTypeEnum.OpenAICompatible]: "OpenAI-compatible",
+  [ImageProviderTypeEnum.GoogleCompatible]: "Google-compatible",
 }
 
 export const providerDefaultModelNames: Record<ImageProviderType, string> = {
-  [ImageProviderTypeEnum.OpenAI]: "gpt-image-2",
-  [ImageProviderTypeEnum.Google]: "gemini-3.1-flash-image",
-  [ImageProviderTypeEnum.OneTopAI]: "gpt-image-2",
-  [ImageProviderTypeEnum.ImageYouyu]: "image-youyu",
-  [ImageProviderTypeEnum.AiCodeWith]: "gpt-image-2",
+  [ImageProviderTypeEnum.OpenAICompatible]: "gpt-image-2",
+  [ImageProviderTypeEnum.GoogleCompatible]: "gemini-3.1-flash-image",
+}
+
+export const providerDeliveryModeLabels: Record<ImageProviderDeliveryMode, string> = {
+  sync: "同步返回",
+  polling: "任务轮询",
 }
 
 export type ReferenceImage = {

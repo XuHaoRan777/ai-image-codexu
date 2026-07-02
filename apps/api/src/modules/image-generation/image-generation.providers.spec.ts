@@ -30,54 +30,72 @@ describe('ImageProviderDispatcher', () => {
     jest.resetAllMocks();
   });
 
-  it('passes auto size to OpenAI provider', async () => {
+  it('builds OpenAI-compatible requests with mapped field names', async () => {
     const dispatcher = new ImageProviderDispatcher();
 
     await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.OpenAI,
+      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      deliveryMode: 'sync',
       apiKey: 'sk-test',
+      baseUrl: 'https://example.com',
+      generationPath: '/v1/images/generations',
       modelName: 'gpt-image-2',
       prompt: 'test prompt',
       aspectRatio: 'auto',
       resolution: '1k',
       quantity: 1,
+      fieldMapping: {
+        quantity: 'count',
+        responseFormat: 'format',
+      },
     });
 
     expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://api.openai.com/v1/images/generations',
-      expect.objectContaining({
-        size: 'auto',
-      }),
-      expect.any(Object),
-    );
-  });
-
-  it('uses OneTopAI fixed images endpoint with its own request body', async () => {
-    const dispatcher = new ImageProviderDispatcher();
-
-    await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.OneTopAI,
-      apiKey: 'onetopai-key',
-      modelName: 'gpt-image-2',
-      prompt: 'test prompt',
-      aspectRatio: '1:1',
-      resolution: '1k',
-      quantity: 3,
-    });
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://www.onetopai.asia/v1/images/generations',
+      'https://example.com/v1/images/generations',
       expect.objectContaining({
         model: 'gpt-image-2',
         prompt: 'test prompt',
-        n: 3,
-        size: '1024x1024',
+        count: 1,
+        size: 'auto',
+        quality: 'medium',
+        format: 'b64_json',
       }),
       expect.any(Object),
     );
   });
 
-  it('omits Google imageConfig when aspect ratio is auto', async () => {
+  it('omits disabled OpenAI-compatible fields', async () => {
+    const dispatcher = new ImageProviderDispatcher();
+
+    await dispatcher.generate({
+      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      deliveryMode: 'sync',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com',
+      modelName: 'gpt-image-2-beta',
+      prompt: 'test prompt',
+      aspectRatio: '1:1',
+      resolution: '1k',
+      quantity: 1,
+      fieldOverrides: {
+        quantity: false,
+        quality: false,
+        responseFormat: false,
+      },
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://example.com/v1/images/generations',
+      expect.not.objectContaining({
+        n: expect.anything(),
+        quality: expect.anything(),
+        response_format: expect.anything(),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('omits Google imageConfig aspect ratio when aspect ratio is auto', async () => {
     mockedAxios.post.mockResolvedValueOnce({
       data: {
         candidates: [
@@ -98,10 +116,13 @@ describe('ImageProviderDispatcher', () => {
     });
     const dispatcher = new ImageProviderDispatcher();
 
+    // Google 模式的 baseUrl 已是完整端点(含模型名与 :generateContent),不再传/拼 modelName
     await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.Google,
+      providerType: ImageProviderTypeEnum.GoogleCompatible,
+      deliveryMode: 'sync',
       apiKey: 'google-key',
-      modelName: 'gemini-3.1-flash-image',
+      baseUrl:
+        'https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-image:generateContent',
       prompt: 'test prompt',
       aspectRatio: 'auto',
       resolution: '1k',
@@ -111,79 +132,17 @@ describe('ImageProviderDispatcher', () => {
     expect(mockedAxios.post).toHaveBeenCalledWith(
       'https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-image:generateContent',
       expect.objectContaining({
-        generationConfig: expect.not.objectContaining({
-          imageConfig: expect.anything(),
+        generationConfig: expect.objectContaining({
+          imageConfig: expect.not.objectContaining({
+            aspectRatio: expect.anything(),
+          }),
         }),
       }),
       expect.any(Object),
     );
   });
 
-  it('does not send model to image-youyu text-to-image requests', async () => {
-    const dispatcher = new ImageProviderDispatcher();
-
-    await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.ImageYouyu,
-      apiKey: 'youyu-key',
-      modelName: 'ignored-model',
-      prompt: 'test prompt',
-      aspectRatio: '16:9',
-      resolution: '4k',
-      quantity: 2,
-    });
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://image.youyu.help/v1/images/generations',
-      expect.objectContaining({
-        prompt: 'test prompt',
-        quality: '2k',
-        size: '1536x1024',
-        output_format: 'png',
-        n: 2,
-      }),
-      expect.any(Object),
-    );
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.not.objectContaining({
-        model: expect.anything(),
-      }),
-      expect.any(Object),
-    );
-  });
-
-  it('uses image-youyu edits endpoint for image-to-image requests', async () => {
-    const dispatcher = new ImageProviderDispatcher();
-
-    await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.ImageYouyu,
-      apiKey: 'youyu-key',
-      modelName: 'ignored-model',
-      prompt: 'test prompt',
-      aspectRatio: '9:16',
-      resolution: '1k',
-      quantity: 1,
-      referenceImages: [
-        `data:image/png;base64,${Buffer.from('reference').toString('base64')}`,
-      ],
-    });
-
-    const [, body] = mockedAxios.post.mock.calls[0];
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://image.youyu.help/v1/images/edits',
-      expect.any(FormData),
-      expect.any(Object),
-    );
-    expect(body).toBeInstanceOf(FormData);
-    expect((body as FormData).has('model')).toBe(false);
-    expect((body as FormData).get('prompt')).toBe('test prompt');
-    expect((body as FormData).get('quality')).toBe('1k');
-    expect((body as FormData).get('size')).toBe('1024x1536');
-    expect((body as FormData).get('output_format')).toBe('png');
-  });
-
-  it('uses AiCodeWith beta model for 1k single image and omits fixed beta params', async () => {
+  it('polls OpenAI-compatible async tasks and downloads result urls', async () => {
     mockedAxios.post.mockResolvedValueOnce({
       data: {
         id: 'task-1',
@@ -204,34 +163,40 @@ describe('ImageProviderDispatcher', () => {
       });
     const dispatcher = new ImageProviderDispatcher();
 
-    await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.AiCodeWith,
-      apiKey: 'aicodewith-key',
-      modelName: 'ignored-model',
+    const images = await dispatcher.generate({
+      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      deliveryMode: 'polling',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.aicodewith.com',
+      generationPath: '/v1/images/generations',
+      modelName: 'gpt-image-2-beta',
       prompt: 'test prompt',
       aspectRatio: '1:1',
       resolution: '1k',
       quantity: 1,
+      fieldOverrides: {
+        quantity: false,
+        quality: false,
+        responseFormat: false,
+      },
+      pollingConfig: {
+        taskIdPath: 'id',
+        pollPathTemplate: '/v1/tasks/{taskId}',
+        statusPath: 'status',
+        successStatusValue: 'completed',
+        failureStatusValue: 'failed',
+        resultUrlsPath: 'result_data[].url',
+        intervalMs: 1000,
+        timeoutMs: 10000,
+      },
     });
 
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://api.aicodewith.com/v1/images/generations',
+    expect(images).toEqual([
       {
-        model: 'gpt-image-2-beta',
-        prompt: 'test prompt',
-        size: '1:1',
+        content: Buffer.from('remote-image'),
+        mimeType: 'image/png',
       },
-      expect.any(Object),
-    );
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.not.objectContaining({
-        n: expect.anything(),
-        quality: expect.anything(),
-        resolution: expect.anything(),
-      }),
-      expect.any(Object),
-    );
+    ]);
     expect(mockedAxios.get).toHaveBeenNthCalledWith(
       1,
       'https://api.aicodewith.com/v1/tasks/task-1',
@@ -246,113 +211,6 @@ describe('ImageProviderDispatcher', () => {
         responseType: 'arraybuffer',
       },
     );
-  });
-
-  it('uses AiCodeWith gpt-image-2 model with full params for non-beta requests', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: {
-        id: 'task-2',
-      },
-    });
-    mockedAxios.get
-      .mockResolvedValueOnce({
-        data: {
-          status: 'completed',
-          result_data: [{ url: 'https://example.com/image.png' }],
-        },
-      })
-      .mockResolvedValueOnce({
-        data: Buffer.from('remote-image'),
-        headers: {
-          'content-type': 'image/png',
-        },
-      });
-    const dispatcher = new ImageProviderDispatcher();
-
-    await dispatcher.generate({
-      providerType: ImageProviderTypeEnum.AiCodeWith,
-      apiKey: 'aicodewith-key',
-      modelName: 'ignored-model',
-      prompt: 'test prompt',
-      aspectRatio: '16:9',
-      resolution: '2k',
-      quantity: 2,
-    });
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      'https://api.aicodewith.com/v1/images/generations',
-      {
-        model: 'gpt-image-2',
-        prompt: 'test prompt',
-        size: '16:9',
-        resolution: '2K',
-        n: 2,
-        quality: 'high',
-      },
-      expect.any(Object),
-    );
-  });
-
-  it('rejects AiCodeWith local reference images before sending base64 to provider', async () => {
-    const dispatcher = new ImageProviderDispatcher();
-
-    await expect(
-      dispatcher.generate({
-        providerType: ImageProviderTypeEnum.AiCodeWith,
-        apiKey: 'aicodewith-key',
-        modelName: 'ignored-model',
-        prompt: 'test prompt',
-        aspectRatio: '1:1',
-        resolution: '1k',
-        quantity: 1,
-        referenceImages: [
-          `data:image/png;base64,${Buffer.from('reference').toString('base64')}`,
-        ],
-      }),
-    ).rejects.toThrow('AiCodeWith 图生图需要公网可访问 image_urls');
-
-    expect(mockedAxios.post).not.toHaveBeenCalled();
-  });
-
-  it('logs AiCodeWith failed task response as formatted provider payload', async () => {
-    const loggerSpy = jest
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => undefined);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: {
-        id: 'task-failed',
-      },
-    });
-    mockedAxios.get.mockResolvedValueOnce({
-      data: {
-        status: 'failed',
-        error: 'channel unavailable',
-      },
-    });
-    const dispatcher = new ImageProviderDispatcher();
-
-    await expect(
-      dispatcher.generate({
-        providerType: ImageProviderTypeEnum.AiCodeWith,
-        apiKey: 'aicodewith-key',
-        modelName: 'ignored-model',
-        prompt: 'test prompt',
-        aspectRatio: '1:1',
-        resolution: '1k',
-        quantity: 1,
-      }),
-    ).rejects.toThrow('channel unavailable');
-
-    expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('\n'));
-    expect(JSON.parse(loggerSpy.mock.calls[0]?.[0] as string)).toEqual({
-      message: 'Provider image response',
-      response: {
-        status: 'failed',
-        error: 'channel unavailable',
-      },
-    });
-
-    loggerSpy.mockRestore();
   });
 
   it('uses five minute timeout and logs provider errors as formatted JSON', async () => {
@@ -376,9 +234,11 @@ describe('ImageProviderDispatcher', () => {
 
     await expect(
       dispatcher.generate({
-        providerType: ImageProviderTypeEnum.ImageYouyu,
-        apiKey: 'youyu-key',
-        modelName: 'ignored-model',
+        providerType: ImageProviderTypeEnum.OpenAICompatible,
+        deliveryMode: 'sync',
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com',
+        modelName: 'gpt-image-2',
         prompt: 'test prompt',
         aspectRatio: '1:1',
         resolution: '1k',
@@ -394,16 +254,7 @@ describe('ImageProviderDispatcher', () => {
       }),
     );
     expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('\n'));
-
-    const loggedPayload = JSON.parse(
-      loggerSpy.mock.calls[0]?.[0] as string,
-    ) as {
-      message: string;
-      status: number;
-      response: { error: { message: string; type: string } };
-    };
-
-    expect(loggedPayload).toEqual({
+    expect(JSON.parse(loggerSpy.mock.calls[0]?.[0] as string)).toEqual({
       message: 'Provider image response',
       status: 400,
       response: {
