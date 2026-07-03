@@ -48,11 +48,11 @@ apps/api/src/
 - `DELETE /api/image-jobs/:id`
 - `GET /api/images/*path`
 
-`POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `aspectRatio` 支持 `auto`、`1:1`、`4:3`、`3:4`、`16:9`、`9:16`，`resolution` 支持 `0.5k`、`1k`、`2k`、`4k`，`quantity` 支持 1 到 4，`referenceImages` 最多 6 张。
+`POST /api/image-jobs` 请求体由 shared schema 校验，当前字段为：`configId`、`prompt`、`aspectRatio`、`resolution`、`quantity`、可选 `referenceImages`。其中 `aspectRatio` 和 `resolution` 是模型配置中 `httpConfig.request.body` 选项的项目语义值，shared 只校验非空字符串；`quantity` 支持 1 到 16，`referenceImages` 最多 16 张，具体可选范围由当前模型的请求体参数配置控制。
 
 配置页接口由 shared schema 校验，当前持久化范围：
 
-- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；后端保存协议类型、请求地址、模型名、字段映射、字段启用规则、交付模式、轮询配置、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。协议类型由 shared 模块的 `ImageProviderTypeEnum` 统一维护，当前只保留 `openai-compatible` 与 `google-compatible`。第三方中转商不再通过新增 provider 方法接入，而是通过模型配置描述请求地址与参数规则。
+- `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；新主流程以 `providerType = configurable-http` 和 `httpConfig` 为核心，后端保存 HTTP 请求头、请求体参数配置、响应提取路径、轮询配置、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。旧的 `openai-compatible` / `google-compatible`、字段映射、旧 bindings 和旧轮询字段仅作为历史过渡字段保留，新建配置由前端统一保存为 `configurable-http`。
 - `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
 - `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存完整请求地址 `url`、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
 - `POST /api/prompt/optimize` 必须读取已保存的 `assistant-config` 并调用真实辅助模型 provider；辅助模型未启用、缺少请求地址、缺少模型名或缺少可解密 API key 时返回明确错误，不在后端本地拼接假优化结果。
@@ -79,15 +79,16 @@ apps/api/src/
 
 - `id`：varchar(64) 主键
 - `name`：配置名称
-- `provider_type`：协议类型，当前为 `openai-compatible` 或 `google-compatible`
+- `provider_type`：provider 类型，新主流程为 `configurable-http`
 - `delivery_mode`：结果交付方式，`sync` 或 `polling`
-- `base_url`：第三方或官方请求基础地址；OpenAI-compatible 会按文生图/图生图路径拼接，Google-compatible **直接作为完整请求端点使用**（模型名已在地址里，后端不再拼接 `{modelName}:generateContent`）
-- `generation_path`：OpenAI-compatible 文生图路径，默认 `/v1/images/generations`
-- `edit_path`：OpenAI-compatible 图生图路径，默认 `/v1/images/edits`
-- `model_name`：真实请求模型名；**仅 OpenAI-compatible 必填并作为请求体参数发送**，Google-compatible 因模型名在完整地址里可留空
-- `field_mapping`：字段名映射 JSON，用于把标准字段映射为第三方字段名；只允许映射白名单字段
-- `field_overrides`：字段启用规则 JSON，用于控制 `model`、`prompt`、`size`、`n`、`quality`、`resolution`、`response_format`、`image` 等字段是否发送
-- `polling_config`：轮询交付配置 JSON，用于读取创建任务响应中的任务 ID、拼接轮询地址、判断成功/失败状态和提取结果图片 URL
+- `base_url`：历史字段，新主流程不依赖；真实请求地址写入 `http_config.request.url`
+- `generation_path`：历史字段，新主流程不依赖
+- `edit_path`：历史字段，新主流程不依赖
+- `model_name`：模型快照，仅用于配置列表和任务历史展示；真实请求模型名可作为固定字段写入 `http_config.request.body` 或 URL
+- `field_mapping`：历史字段，新主流程不依赖
+- `field_overrides`：历史字段，新主流程不依赖
+- `polling_config`：历史字段，新主流程不依赖；轮询规则写入 `http_config.polling`
+- `http_config`：通用 HTTP 生图配置 JSON，包含 `request`、`request.body` 请求体参数配置、`response`、`polling`；旧 `bindings/referenceImages` 仅短期兼容历史配置
 - `api_key_masked`：掩码密钥，仅用于前端展示
 - `api_key_encrypted`：加密密文，供后端真实请求时解密使用
 - `enabled`：是否启用
@@ -112,10 +113,11 @@ apps/api/src/
 - `provider_type`：来源类型
 - `model_name`：实际请求模型名
 - `prompt`：任务提示词
-- `aspect_ratio` / `resolution` / `quantity`：任务参数
+- `aspect_ratio` / `resolution` / `quantity`：任务参数；尺寸和分辨率保存配置选项的项目语义值
 - `status`：`queued`、`running`、`succeeded`、`failed` 或 `canceled`；新任务失败时不再保存 `failed` 记录，该状态仅兼容历史旧数据或外部导入数据
 - `image_url`：首张生成图片的本地访问地址，可为空
 - `image_urls`：所有生成图片的本地访问地址数组，可为空
+- `token_usage`：第三方响应中提取的 token 消耗，可为空
 - `error_message`：任务失败错误信息，可为空
 - `created_at` / `updated_at`：创建与更新时间
 
@@ -138,10 +140,10 @@ export class EntityName {
 
 生图 provider 配置化的完整设计见 `docs/design/image-provider-config.md`。本节只保留后端规格中的关键约束。
 
-生图真实请求通过两个协议 provider 和一个交付模式层执行，控制器不直接依赖第三方请求结构：
+生图真实请求通过通用 HTTP executor 执行，控制器不直接依赖第三方请求结构：
 
-- 生图 provider：OpenAI-compatible、Google-compatible
-- 交付模式：`sync` 表示一次请求直接得到图片；`polling` 表示先创建第三方任务，再按配置轮询并下载结果图片 URL
+- 生图 provider：新主流程为 `configurable-http`
+- 交付模式：`sync` 表示一次请求直接得到图片；`polling` 表示先创建第三方任务，再按配置轮询并提取结果图片
 - 辅助模型 provider：OpenAI 模式、Claude 模式
 - 控制器不直接依赖第三方请求结构
 - 第三方 API key 只在后端使用，前端只接收掩码字段
@@ -150,14 +152,19 @@ export class EntityName {
 - 辅助模型提示词优化只返回优化后的提示词正文；请求失败时向前端返回第三方错误摘要，不记录或返回原始 API key。
 - 辅助模型系统提示词必须以用户原意为最高优先级，只在不改变主体、动作、场景、风格、数量、视角和故事含义的前提下补充构图、镜头、光线、材质、质量和负面约束。
 - 识图接口请求体通过 JSON 接收单张图片 data URL，API JSON body limit 为 30MB；后端只在请求生命周期内解析图片，不写入本地存储或数据库。
-- 每个第三方中转商不再单独维护 provider 方法。`image-generation.providers.ts` 只保留协议适配器：OpenAI-compatible 负责 OpenAI Images 风格的 JSON/multipart 请求与 `data[].b64_json` / `data[].url` 响应解析；Google-compatible 负责 Gemini `generateContent` 请求与 inline image 响应解析。字段名映射和字段是否发送由模型配置驱动，但图片上传结构、鉴权头和响应解析仍由协议适配器固定维护。
+- 每个第三方中转商不再单独维护 provider 方法。`image-generation.providers.ts` 的新主入口为 `generateConfiguredHttp`，根据 `httpConfig.request` 组装最终 URL、headers、content type 和 body。
+- `httpConfig.request.body` 是请求体参数配置，第一层 key 固定为 `prompt`、`aspectRatio`、`resolution`、`quantity`、`referenceImages`、`extra`。后端从空对象开始组装最终 body：先写入 `extra` 固定参数，再按 path 写入页面业务参数和参考图。
+- `aspectRatio` / `resolution` 的 `options` 由前端展示 `label`，后端发送 `value`；`value: null` 表示不写入该 path，不再使用 `omitWhen`。
+- `quantity.enabled = false` 表示不传数量；启用时按 `min/max/defaultValue` 控制前端选项并写入配置的 path。
+- `request.body.referenceImages` 支持 `inlineBase64`、`multipart` 和 `none`；`urlArray` 仅预留，必须等后续 OSS 或公网图片托管能力接入后才能真正启用。
+- `httpConfig.response.images` 使用完整路径提取图片，支持 `base64`、`dataUrl` 和远程 `url`；远程 URL 会由后端下载后保存到本地。
+- `httpConfig.response.usage.totalTokensPath` 提取到的 token 消耗会写入 `image_job.token_usage`。
+- `deliveryMode = polling` 时 `httpConfig.polling` 必填，创建响应用 `taskIdPath` 提取任务 ID，轮询响应用 `statusPath`、`successValue`、`failureValue` 判断状态，成功后使用 `polling.response` 或顶层 `response` 提取图片。
 - `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`。provider 或图片保存失败后删除任务记录，前端轮询该任务会收到 404；`GET /api/image-jobs` 按创建时间倒序只返回仍持久化的任务历史。
 - `DELETE /api/image-jobs/:id` 对历史任务执行硬删除，不做逻辑删除；接口会删除 `image_job` 数据库记录，并根据记录里的 `imageUrl` / `imageUrls` 清理对应 `/api/images/*` 本地文件。文件不存在时不阻塞记录删除；任务记录不存在时返回 404。
-- 生图任务记录会保存任务实际使用的 `providerType` 与 `modelName`，用于前端历史展示和排查请求；`providerType` 记录协议类型，`modelName` 来自模型配置的 `model_name`（Google-compatible 下为空，历史详情因此不再单独展示模型名，只展示配置名）。
-- OpenAI-compatible 配置默认字段为 `model`、`prompt`、`n`、`size`、`quality`、`response_format`；无参考图时请求 `generation_path` 并发送 JSON，有参考图时请求 `edit_path` 并发送 multipart。`aspectRatio = auto` 时默认 `size = auto`；其它尺寸和分辨率由后端标准映射得到。
-- Google-compatible 配置的 `base_url` 即为含模型名与 `:generateContent` 的完整请求端点（形如 `https://api.apiyi.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent`），后端原样使用、不再拼接 `{modelName}`；通过 `x-goog-api-key` 鉴权；`aspectRatio = auto` 时不发送固定 `imageConfig.aspectRatio`。前端设置页在 Google 模式下隐藏「模型名称」输入框，并把「请求地址」的 label/placeholder 切换为完整端点形态。
-- AiCodeWith 这类“正常生图 / 低配生图”中转商应拆成两个模型配置，分别填写不同 `modelName` 和字段启用规则；若其结果交付是先创建任务再轮询，则配置 `deliveryMode = polling`，后端使用 `pollingConfig` 提取 `taskId`、轮询状态和结果 URL。
-- provider 请求超时时间为 5 分钟。请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志使用多行缩进 JSON，若第三方响应体是 JSON 字符串会先解析为对象再输出；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
+- 生图任务记录会保存任务实际使用的 `providerType`、`modelName` 和 `tokenUsage`，用于前端历史展示和排查请求；`providerType` 新配置下通常为 `configurable-http`，`modelName` 来自模型配置的模型快照。
+- provider 请求超时时间为 5 分钟。请求前日志打印完成模板渲染、字段映射、参考图注入后的最终请求结构，包含 method、contentType、URL、脱敏 headers 和 body；headers 中的 key、token、authorization 等字段必须脱敏，body 中 data URL 或 base64 只保留前 25 位。
+- 请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志使用多行缩进 JSON，若第三方响应体是 JSON 字符串会先解析为对象再输出；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
 - 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。
 - 删除历史任务时，后端只允许从 `/api/images/*` 公开 URL 还原存储根目录下的相对路径并删除对应文件，必须继续防止目录穿越和误删存储根目录外文件。
 

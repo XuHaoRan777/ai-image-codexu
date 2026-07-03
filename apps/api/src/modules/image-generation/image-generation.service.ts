@@ -59,10 +59,11 @@ export class ImageGenerationService {
       editPath: input.editPath || null,
       apiKeyMasked: apiKey ? (maskSecret(apiKey) ?? null) : null,
       apiKeyEncrypted: apiKey ? encryptSecret(apiKey) : null,
-      modelName: input.modelName,
+      modelName: input.modelName ?? '',
       fieldMapping: input.fieldMapping ?? null,
       fieldOverrides: input.fieldOverrides ?? null,
       pollingConfig: input.pollingConfig ?? null,
+      httpConfig: input.httpConfig ?? null,
       enabled: input.enabled,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -116,6 +117,9 @@ export class ImageGenerationService {
     }
     if (input.pollingConfig !== undefined) {
       existing.pollingConfig = input.pollingConfig ?? null;
+    }
+    if (input.httpConfig !== undefined) {
+      existing.httpConfig = input.httpConfig ?? null;
     }
     if (input.enabled !== undefined) {
       existing.enabled = input.enabled;
@@ -184,6 +188,7 @@ export class ImageGenerationService {
       status: 'queued',
       imageUrl: null,
       imageUrls: null,
+      tokenUsage: null,
       errorMessage: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -266,29 +271,24 @@ export class ImageGenerationService {
         throw new Error('模型配置缺少 API key');
       }
 
-      const providerRequest = {
-        providerType: config.providerType,
-        deliveryMode: config.deliveryMode,
-        apiKey,
-        baseUrl: config.baseUrl,
-        generationPath: config.generationPath ?? undefined,
-        editPath: config.editPath ?? undefined,
-        modelName: job.modelName,
-        prompt: job.prompt,
-        aspectRatio: job.aspectRatio,
-        resolution: job.resolution,
-        quantity: job.quantity as ImageQuantity,
-        referenceImages,
-        fieldMapping: config.fieldMapping ?? undefined,
-        fieldOverrides: config.fieldOverrides ?? undefined,
-        pollingConfig: config.pollingConfig ?? undefined,
-      };
+      if (!config.httpConfig) {
+        throw new Error('Image model config is missing httpConfig');
+      }
 
-      const images =
-        await this.imageProviderDispatcher.generate(providerRequest);
+      const providerResult =
+        await this.imageProviderDispatcher.generateConfiguredHttp({
+          deliveryMode: config.deliveryMode,
+          apiKey,
+          httpConfig: config.httpConfig,
+          prompt: job.prompt,
+          aspectRatio: job.aspectRatio,
+          resolution: job.resolution,
+          quantity: job.quantity as ImageQuantity,
+          referenceImages,
+        });
 
       const imageUrls = await Promise.all(
-        images.map((image, index) =>
+        providerResult.images.map((image, index) =>
           this.imageStorageService.saveImage(
             `generated/${job.id}-${index + 1}.${mimeTypeToExtension(
               image.mimeType,
@@ -302,6 +302,7 @@ export class ImageGenerationService {
         status: 'succeeded',
         imageUrl: imageUrls[0],
         imageUrls,
+        tokenUsage: providerResult.tokenUsage ?? null,
         errorMessage: null,
         updatedAt: new Date(),
       });
@@ -327,6 +328,7 @@ export class ImageGenerationService {
       fieldMapping: entity.fieldMapping ?? undefined,
       fieldOverrides: entity.fieldOverrides ?? undefined,
       pollingConfig: entity.pollingConfig ?? undefined,
+      httpConfig: entity.httpConfig ?? undefined,
       enabled: entity.enabled,
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
@@ -350,6 +352,7 @@ export class ImageGenerationService {
       status: entity.status,
       imageUrl: entity.imageUrl ?? undefined,
       imageUrls: entity.imageUrls ?? undefined,
+      tokenUsage: entity.tokenUsage ?? undefined,
       errorMessage: entity.errorMessage ?? undefined,
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
@@ -365,6 +368,7 @@ export class ImageGenerationService {
       status: ImageJobStatus;
       imageUrl: string | null;
       imageUrls: string[] | null;
+      tokenUsage: number | null;
       errorMessage: string | null;
       updatedAt: Date;
     }>,

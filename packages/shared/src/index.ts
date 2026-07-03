@@ -1,11 +1,13 @@
 import { z } from 'zod';
 
 export enum ImageProviderTypeEnum {
+  ConfigurableHttp = 'configurable-http',
   OpenAICompatible = 'openai-compatible',
   GoogleCompatible = 'google-compatible',
 }
 
 export const imageProviderTypes = [
+  ImageProviderTypeEnum.ConfigurableHttp,
   ImageProviderTypeEnum.OpenAICompatible,
   ImageProviderTypeEnum.GoogleCompatible,
 ] as const;
@@ -45,6 +47,23 @@ export const aspectRatios = [
 export const imageResolutions = ['0.5k', '1k', '2k', '4k'] as const;
 
 export const imageQuantities = [1, 2, 3, 4] as const;
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
 
 export enum ApiResponseCode {
   Success = 200,
@@ -140,12 +159,143 @@ export const imageProviderPollingConfigSchema = z
   })
   .optional();
 
+export const imageProviderHttpContentTypes = ['json', 'multipart'] as const;
+
+export const imageProviderHttpImageValueTypes = [
+  'base64',
+  'url',
+  'dataUrl',
+] as const;
+
+export const imageProviderReferenceImageModes = [
+  'none',
+  'inlineBase64',
+  'multipart',
+  'urlArray',
+] as const;
+
+const imageProviderHttpOptionSchema = z.union([
+  z.object({
+    label: z.string().min(1),
+    value: jsonValueSchema.optional(),
+  }),
+  jsonValueSchema,
+]);
+
+const imageProviderHttpBodyFieldSchema = z.object({
+  enabled: z.boolean().optional(),
+  path: z.string().optional(),
+  options: z.array(imageProviderHttpOptionSchema).optional(),
+  defaultValue: jsonValueSchema.optional(),
+});
+
+const imageProviderHttpQuantityFieldSchema = z.object({
+  enabled: z.boolean().optional(),
+  path: z.string().optional(),
+  min: z.number().int().min(1).optional(),
+  max: z.number().int().min(1).max(16).optional(),
+  defaultValue: z.number().int().min(1).max(16).optional(),
+});
+
+export const imageProviderHttpReferenceImagesSchema = z
+  .object({
+    mode: z.enum(imageProviderReferenceImageModes).default('none'),
+    maxCount: z.number().int().min(0).max(16).optional(),
+    path: z.string().optional(),
+    fieldName: z.string().optional(),
+    template: jsonValueSchema.optional(),
+  })
+  .optional();
+
+const imageProviderHttpExtraBodyParamSchema = z.object({
+  path: z.string().min(1),
+  value: jsonValueSchema,
+});
+
+export const imageProviderHttpBodyConfigSchema = z.object({
+  prompt: imageProviderHttpBodyFieldSchema.optional(),
+  aspectRatio: imageProviderHttpBodyFieldSchema.optional(),
+  resolution: imageProviderHttpBodyFieldSchema.optional(),
+  quantity: imageProviderHttpQuantityFieldSchema.optional(),
+  referenceImages: imageProviderHttpReferenceImagesSchema,
+  extra: z.array(imageProviderHttpExtraBodyParamSchema).optional(),
+}).strict();
+
+export const imageProviderHttpRequestSchema = z.object({
+  method: z.enum(['GET', 'POST']).default('POST'),
+  url: z.string().min(1, 'Request URL is required'),
+  contentType: z.enum(imageProviderHttpContentTypes).default('json'),
+  headers: z.record(z.string(), z.string()).default({}),
+  body: z.union([imageProviderHttpBodyConfigSchema, jsonValueSchema]).optional(),
+});
+
+export const imageProviderHttpBindingSchema = z.object({
+  path: z.string().optional(),
+  enabled: z.boolean().optional(),
+  omitWhen: jsonValueSchema.optional(),
+  map: z.record(z.string(), jsonValueSchema).optional(),
+  defaultValue: jsonValueSchema.optional(),
+});
+
+export const imageProviderHttpBindingsSchema = z
+  .object({
+    prompt: imageProviderHttpBindingSchema.optional(),
+    aspectRatio: imageProviderHttpBindingSchema.optional(),
+    resolution: imageProviderHttpBindingSchema.optional(),
+    quantity: imageProviderHttpBindingSchema.optional(),
+  })
+  .optional();
+
+export const imageProviderHttpImageResponseSchema = z.object({
+  type: z.enum(imageProviderHttpImageValueTypes),
+  dataPath: z.string().optional(),
+  urlPath: z.string().optional(),
+  mimeTypePath: z.string().optional(),
+  mimeType: z.string().optional(),
+});
+
+export const imageProviderHttpResponseSchema = z.object({
+  images: imageProviderHttpImageResponseSchema,
+  metadata: z.record(z.string(), z.string()).optional(),
+  usage: z
+    .object({
+      totalTokensPath: z.string().optional(),
+    })
+    .optional(),
+});
+
+export const imageProviderHttpPollingSchema = z
+  .object({
+    request: imageProviderHttpRequestSchema,
+    taskIdPath: z.string().min(1, 'Task ID path is required'),
+    statusPath: z.string().min(1, 'Status path is required'),
+    successValue: z.string().min(1, 'Success status value is required'),
+    failureValue: z.string().optional(),
+    intervalMs: z.number().int().min(1000).max(60000).optional(),
+    timeoutMs: z.number().int().min(10000).max(600000).optional(),
+    response: imageProviderHttpResponseSchema.optional(),
+  })
+  .optional();
+
+export const imageProviderHttpConfigSchema = z.object({
+  request: imageProviderHttpRequestSchema,
+  bindings: imageProviderHttpBindingsSchema,
+  referenceImages: imageProviderHttpReferenceImagesSchema,
+  response: imageProviderHttpResponseSchema,
+  polling: imageProviderHttpPollingSchema,
+});
+
 /**
  * OpenAI 模式必须填模型名(作请求体参数);Google 模式模型名在完整请求地址里,可留空。
  * 校验以 superRefine 挂在最外层,基础 object 单独抽出供 update schema 派生 partial。
  */
 function requireModelNameForOpenAi(
-  value: { providerType: ImageProviderType; modelName?: string },
+  value: {
+    providerType: ImageProviderType;
+    deliveryMode?: ImageProviderDeliveryMode;
+    modelName?: string;
+    httpConfig?: ImageProviderHttpConfig;
+  },
   ctx: z.RefinementCtx,
 ) {
   if (
@@ -156,6 +306,29 @@ function requireModelNameForOpenAi(
       code: 'custom',
       message: '模型名称不能为空',
       path: ['modelName'],
+    });
+  }
+
+  if (
+    value.providerType === ImageProviderTypeEnum.ConfigurableHttp &&
+    !value.httpConfig
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'HTTP 请求模板不能为空',
+      path: ['httpConfig'],
+    });
+  }
+
+  if (
+    value.providerType === ImageProviderTypeEnum.ConfigurableHttp &&
+    value.deliveryMode === 'polling' &&
+    !value.httpConfig?.polling
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: '轮询交付需要配置 polling',
+      path: ['httpConfig', 'polling'],
     });
   }
 }
@@ -174,6 +347,7 @@ export const imageModelConfigSchema = z.object({
   fieldMapping: imageProviderFieldMappingSchema,
   fieldOverrides: imageProviderFieldOverridesSchema,
   pollingConfig: imageProviderPollingConfigSchema,
+  httpConfig: imageProviderHttpConfigSchema.optional(),
   enabled: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -197,6 +371,7 @@ const createImageModelConfigBaseSchema = z.object({
   fieldMapping: imageProviderFieldMappingSchema,
   fieldOverrides: imageProviderFieldOverridesSchema,
   pollingConfig: imageProviderPollingConfigSchema,
+  httpConfig: imageProviderHttpConfigSchema.optional(),
   enabled: z.boolean(),
 });
 
@@ -215,7 +390,12 @@ export const updateImageModelConfigSchema = createImageModelConfigBaseSchema
       return;
     }
     requireModelNameForOpenAi(
-      { providerType: value.providerType, modelName: value.modelName },
+      {
+        providerType: value.providerType,
+        deliveryMode: value.deliveryMode,
+        modelName: value.modelName,
+        httpConfig: value.httpConfig,
+      },
       ctx,
     );
   });
@@ -267,10 +447,10 @@ export const imageRecognitionResponseSchema = z.object({
 export const createImageJobSchema = z.object({
   configId: z.string().min(1, '请选择生图模型配置'),
   prompt: z.string().min(1, '提示词不能为空'),
-  aspectRatio: z.enum(aspectRatios),
-  resolution: z.enum(imageResolutions),
-  quantity: z.number().int().min(1).max(4),
-  referenceImages: z.array(z.string()).max(6).optional(),
+  aspectRatio: z.string().min(1, '请选择尺寸'),
+  resolution: z.string().min(1, '请选择分辨率'),
+  quantity: z.number().int().min(1).max(16),
+  referenceImages: z.array(z.string()).max(16).optional(),
 });
 
 export const imageJobSchema = z.object({
@@ -280,12 +460,13 @@ export const imageJobSchema = z.object({
   providerType: z.enum(imageProviderTypes),
   modelName: z.string(),
   prompt: z.string(),
-  aspectRatio: z.enum(aspectRatios),
-  resolution: z.enum(imageResolutions),
-  quantity: z.number().int().min(1).max(4),
+  aspectRatio: z.string(),
+  resolution: z.string(),
+  quantity: z.number().int().min(1).max(16),
   status: z.enum(imageJobStatuses),
   imageUrl: z.string().optional(),
   imageUrls: z.array(z.string()).optional(),
+  tokenUsage: z.number().int().nonnegative().optional(),
   errorMessage: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -297,9 +478,9 @@ export type ImageProviderDeliveryMode =
 export type ImageProviderFieldKey = (typeof imageProviderFieldKeys)[number];
 export type AssistantProviderMode = (typeof assistantProviderModes)[number];
 export type ImageJobStatus = (typeof imageJobStatuses)[number];
-export type AspectRatio = (typeof aspectRatios)[number];
-export type ImageResolution = (typeof imageResolutions)[number];
-export type ImageQuantity = (typeof imageQuantities)[number];
+export type AspectRatio = string;
+export type ImageResolution = string;
+export type ImageQuantity = number;
 
 export type ApiResponse<T> = {
   code: ApiResponseCode;
@@ -316,6 +497,51 @@ export type ImageProviderFieldOverrides = z.infer<
 >;
 export type ImageProviderPollingConfig = z.infer<
   typeof imageProviderPollingConfigSchema
+>;
+export type ImageProviderHttpContentType =
+  (typeof imageProviderHttpContentTypes)[number];
+export type ImageProviderHttpImageValueType =
+  (typeof imageProviderHttpImageValueTypes)[number];
+export type ImageProviderReferenceImageMode =
+  (typeof imageProviderReferenceImageModes)[number];
+export type ImageProviderHttpRequest = z.infer<
+  typeof imageProviderHttpRequestSchema
+>;
+export type ImageProviderHttpBodyConfig = z.infer<
+  typeof imageProviderHttpBodyConfigSchema
+>;
+export type ImageProviderHttpBodyField = z.infer<
+  typeof imageProviderHttpBodyFieldSchema
+>;
+export type ImageProviderHttpBodyOption = z.infer<
+  typeof imageProviderHttpOptionSchema
+>;
+export type ImageProviderHttpQuantityField = z.infer<
+  typeof imageProviderHttpQuantityFieldSchema
+>;
+export type ImageProviderHttpExtraBodyParam = z.infer<
+  typeof imageProviderHttpExtraBodyParamSchema
+>;
+export type ImageProviderHttpBinding = z.infer<
+  typeof imageProviderHttpBindingSchema
+>;
+export type ImageProviderHttpBindings = z.infer<
+  typeof imageProviderHttpBindingsSchema
+>;
+export type ImageProviderHttpReferenceImages = z.infer<
+  typeof imageProviderHttpReferenceImagesSchema
+>;
+export type ImageProviderHttpImageResponse = z.infer<
+  typeof imageProviderHttpImageResponseSchema
+>;
+export type ImageProviderHttpResponse = z.infer<
+  typeof imageProviderHttpResponseSchema
+>;
+export type ImageProviderHttpPolling = z.infer<
+  typeof imageProviderHttpPollingSchema
+>;
+export type ImageProviderHttpConfig = z.infer<
+  typeof imageProviderHttpConfigSchema
 >;
 export type CreateImageModelConfigInput = z.infer<
   typeof createImageModelConfigSchema

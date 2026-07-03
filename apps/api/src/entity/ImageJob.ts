@@ -26,10 +26,10 @@ export class ImageJobEntity {
   @Column({ type: 'text', name: 'prompt' })
   prompt: string;
 
-  @Column({ type: 'varchar', length: 16, name: 'aspect_ratio' })
+  @Column({ type: 'varchar', length: 64, name: 'aspect_ratio' })
   aspectRatio: AspectRatio;
 
-  @Column({ type: 'varchar', length: 16, name: 'resolution' })
+  @Column({ type: 'varchar', length: 64, name: 'resolution' })
   resolution: ImageResolution;
 
   @Column({ type: 'int', name: 'quantity' })
@@ -48,6 +48,9 @@ export class ImageJobEntity {
 
   @Column({ type: 'simple-json', name: 'image_urls', nullable: true })
   imageUrls: string[] | null;
+
+  @Column({ type: 'int', name: 'token_usage', nullable: true })
+  tokenUsage: number | null;
 
   @Column({ type: 'text', name: 'error_message', nullable: true })
   errorMessage: string | null;

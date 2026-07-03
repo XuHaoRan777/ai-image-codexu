@@ -64,6 +64,239 @@ describe('ImageProviderDispatcher', () => {
     );
   });
 
+  it('builds configured HTTP JSON requests with body parameter config and reference images', async () => {
+    const loggerSpy = jest
+      .spyOn(Logger.prototype, 'log')
+      .mockImplementation(() => undefined);
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: Buffer.from('image').toString('base64'),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        usageMetadata: {
+          totalTokenCount: 42,
+        },
+      },
+    });
+    const dispatcher = new ImageProviderDispatcher();
+    const referenceImage = `data:image/jpeg;base64,${Buffer.from(
+      'reference-image',
+    ).toString('base64')}`;
+
+    const result = await dispatcher.generateConfiguredHttp({
+      deliveryMode: 'sync',
+      apiKey: 'google-key',
+      httpConfig: {
+        request: {
+          method: 'POST',
+          url: 'https://api.apiyi.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent',
+          contentType: 'json',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': '{{apiKey}}',
+          },
+          body: {
+            prompt: {
+              path: 'contents[0].parts[0].text',
+            },
+            aspectRatio: {
+              path: 'generationConfig.imageConfig.aspectRatio',
+              options: [{ label: 'auto', value: null }],
+            },
+            resolution: {
+              path: 'generationConfig.imageConfig.imageSize',
+              options: [{ label: '1k', value: '1K' }],
+            },
+            quantity: { path: 'candidateCount', enabled: false },
+            referenceImages: {
+              mode: 'inlineBase64',
+              maxCount: 16,
+              path: 'contents[0].parts[]',
+              template: {
+                inlineData: {
+                  mimeType: '{{mimeType}}',
+                  data: '{{base64}}',
+                },
+              },
+            },
+            extra: [
+              {
+                path: 'generationConfig.responseModalities',
+                value: ['IMAGE'],
+              },
+            ],
+          },
+        },
+        response: {
+          images: {
+            type: 'base64',
+            dataPath: 'candidates[].content.parts[].inlineData.data',
+            mimeTypePath:
+              'candidates[].content.parts[].inlineData.mimeType',
+          },
+          usage: {
+            totalTokensPath: 'usageMetadata.totalTokenCount',
+          },
+        },
+      },
+      prompt: 'test prompt',
+      aspectRatio: 'auto',
+      resolution: '1k',
+      quantity: 1,
+      referenceImages: [referenceImage],
+    });
+
+    expect(result).toEqual({
+      images: [
+        {
+          content: Buffer.from('image'),
+          mimeType: 'image/png',
+        },
+      ],
+      tokenUsage: 42,
+    });
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://api.apiyi.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent',
+      expect.objectContaining({
+        contents: [
+          {
+            parts: [
+              { text: 'test prompt' },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: Buffer.from('reference-image').toString('base64'),
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: expect.objectContaining({
+          responseModalities: ['IMAGE'],
+          imageConfig: expect.objectContaining({
+            imageSize: '1K',
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-goog-api-key': 'google-key',
+        }),
+      }),
+    );
+    const sentBody = mockedAxios.post.mock.calls[0]?.[1] as {
+      candidateCount?: number;
+      generationConfig?: { imageConfig?: { aspectRatio?: string } };
+    };
+    expect(sentBody.candidateCount).toBeUndefined();
+    expect(sentBody.generationConfig?.imageConfig?.aspectRatio).toBeUndefined();
+    const logPayload = JSON.parse(loggerSpy.mock.calls[0]?.[0] as string);
+    expect(logPayload.headers['x-goog-api-key']).toBe('[redacted]');
+    expect(JSON.stringify(logPayload)).not.toContain('google-key');
+    loggerSpy.mockRestore();
+  });
+
+  it('polls configured HTTP tasks and downloads URL results', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        id: 'task-1',
+      },
+    });
+    mockedAxios.get
+      .mockResolvedValueOnce({
+        data: {
+          status: 'completed',
+          result_data: [{ url: 'https://example.com/image.png' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: Buffer.from('remote-image'),
+        headers: {
+          'content-type': 'image/png',
+        },
+      });
+    const dispatcher = new ImageProviderDispatcher();
+
+    const result = await dispatcher.generateConfiguredHttp({
+      deliveryMode: 'polling',
+      apiKey: 'sk-test',
+      httpConfig: {
+        request: {
+          method: 'POST',
+          url: 'https://api.aicodewith.com/v1/images/generations',
+          contentType: 'json',
+          headers: {
+            Authorization: 'Bearer {{apiKey}}',
+          },
+          body: {
+            prompt: {
+              path: 'prompt',
+            },
+          },
+        },
+        response: {
+          images: {
+            type: 'url',
+            urlPath: 'data[].url',
+          },
+        },
+        polling: {
+          request: {
+            method: 'GET',
+            url: 'https://api.aicodewith.com/v1/tasks/{{taskId}}',
+            contentType: 'json',
+            headers: {
+              Authorization: 'Bearer {{apiKey}}',
+            },
+          },
+          taskIdPath: 'id',
+          statusPath: 'status',
+          successValue: 'completed',
+          failureValue: 'failed',
+          intervalMs: 1000,
+          timeoutMs: 10000,
+          response: {
+            images: {
+              type: 'url',
+              urlPath: 'result_data[].url',
+            },
+          },
+        },
+      },
+      prompt: 'test prompt',
+      aspectRatio: '1:1',
+      resolution: '1k',
+      quantity: 1,
+    });
+
+    expect(result.images).toEqual([
+      {
+        content: Buffer.from('remote-image'),
+        mimeType: 'image/png',
+      },
+    ]);
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      1,
+      'https://api.aicodewith.com/v1/tasks/task-1',
+      expect.objectContaining({
+        headers: {
+          Authorization: 'Bearer sk-test',
+        },
+      }),
+    );
+  });
+
   it('omits disabled OpenAI-compatible fields', async () => {
     const dispatcher = new ImageProviderDispatcher();
 

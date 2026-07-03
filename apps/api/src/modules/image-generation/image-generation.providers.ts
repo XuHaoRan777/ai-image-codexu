@@ -4,10 +4,20 @@ import type {
   ImageProviderDeliveryMode,
   ImageProviderFieldMapping,
   ImageProviderFieldOverrides,
+  ImageProviderHttpBinding,
+  ImageProviderHttpBodyConfig,
+  ImageProviderHttpBodyField,
+  ImageProviderHttpBodyOption,
+  ImageProviderHttpConfig,
+  ImageProviderHttpQuantityField,
+  ImageProviderHttpReferenceImages,
+  ImageProviderHttpRequest,
+  ImageProviderHttpResponse,
   ImageProviderPollingConfig,
   ImageProviderType,
   ImageQuantity,
   ImageResolution,
+  JsonValue,
 } from '@ai-image-codexu/shared';
 import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
 import axios, { AxiosError } from 'axios';
@@ -31,6 +41,17 @@ export type ImageProviderRequest = {
   pollingConfig?: ImageProviderPollingConfig;
 };
 
+export type ConfiguredHttpImageProviderRequest = {
+  deliveryMode: ImageProviderDeliveryMode;
+  apiKey: string;
+  httpConfig: ImageProviderHttpConfig;
+  prompt: string;
+  aspectRatio: AspectRatio;
+  resolution: ImageResolution;
+  quantity: ImageQuantity;
+  referenceImages?: string[];
+};
+
 const providerLogger = new Logger('ImageProviderDispatcher');
 const defaultProviderTimeoutMs = 300_000;
 const defaultOpenAiGenerationPath = '/v1/images/generations';
@@ -38,9 +59,14 @@ const defaultOpenAiEditPath = '/v1/images/edits';
 const defaultPollingIntervalMs = 5_000;
 const defaultPollingTimeoutMs = 300_000;
 
-type GeneratedImage = {
+export type GeneratedImage = {
   content: Buffer;
   mimeType: string;
+};
+
+export type ImageProviderResult = {
+  images: GeneratedImage[];
+  tokenUsage?: number;
 };
 
 type OpenAiExtractedImage = GeneratedImage | string;
@@ -77,6 +103,41 @@ export class ImageProviderDispatcher {
       case ImageProviderTypeEnum.GoogleCompatible:
         return this.generateGoogleCompatible(request);
     }
+  }
+
+  async generateConfiguredHttp(
+    request: ConfiguredHttpImageProviderRequest,
+  ): Promise<ImageProviderResult> {
+    const createRequest = buildConfiguredHttpRequest(
+      request.httpConfig.request,
+      getBusinessPlaceholderContext(request),
+    );
+    const requestBody = buildConfiguredHttpBody(request);
+    const createResponse = await executeConfiguredHttpRequest(
+      createRequest,
+      requestBody.data,
+      requestBody.logBody,
+    );
+
+    if (request.deliveryMode !== 'polling') {
+      return extractConfiguredHttpResult(
+        createResponse,
+        request.httpConfig.response,
+      );
+    }
+
+    const polling = request.httpConfig.polling;
+
+    if (!polling) {
+      throw new BadGatewayException('Polling config is required');
+    }
+
+    const pollResponse = await pollConfiguredHttpTask(createResponse, request);
+
+    return extractConfiguredHttpResult(
+      pollResponse,
+      polling.response ?? request.httpConfig.response,
+    );
   }
 
   /**
@@ -117,14 +178,10 @@ export class ImageProviderDispatcher {
 
     logProviderRequest('json', url, body);
 
-    return postWithProviderError<unknown>(
-      url,
-      body,
-      {
-        Authorization: `Bearer ${request.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    );
+    return postWithProviderError<unknown>(url, body, {
+      Authorization: `Bearer ${request.apiKey}`,
+      'Content-Type': 'application/json',
+    });
   }
 
   /**
@@ -167,7 +224,10 @@ export class ImageProviderDispatcher {
       }
     }
 
-    const url = joinUrl(request.baseUrl, request.editPath || defaultOpenAiEditPath);
+    const url = joinUrl(
+      request.baseUrl,
+      request.editPath || defaultOpenAiEditPath,
+    );
 
     logProviderRequest('multipart/form-data', url, logBody);
 
@@ -267,6 +327,705 @@ export class ImageProviderDispatcher {
 
     return Promise.all(images.map(downloadRemoteImage));
   }
+}
+
+type ConfiguredHttpBuiltRequest = {
+  method: 'GET' | 'POST';
+  url: string;
+  contentType: ImageProviderHttpRequest['contentType'];
+  headers: Record<string, string>;
+};
+
+type PlaceholderContext = Record<string, string | number | boolean | undefined>;
+
+function buildConfiguredHttpRequest(
+  config: ImageProviderHttpRequest,
+  context: PlaceholderContext,
+): ConfiguredHttpBuiltRequest {
+  return {
+    method: config.method ?? 'POST',
+    url: renderTemplate(config.url, context),
+    contentType: config.contentType ?? 'json',
+    headers: Object.fromEntries(
+      Object.entries(config.headers ?? {}).map(([key, value]) => [
+        key,
+        renderTemplate(value, context),
+      ]),
+    ),
+  };
+}
+
+function buildConfiguredHttpBody(request: ConfiguredHttpImageProviderRequest) {
+  const bodyConfig = request.httpConfig.request.body;
+
+  if (isConfiguredHttpBodyConfig(bodyConfig)) {
+    return buildConfiguredHttpBodyFromParamConfig(request, bodyConfig);
+  }
+
+  return buildLegacyConfiguredHttpBody(request);
+}
+
+function buildConfiguredHttpBodyFromParamConfig(
+  request: ConfiguredHttpImageProviderRequest,
+  bodyConfig: ImageProviderHttpBodyConfig,
+) {
+  const context = getBusinessPlaceholderContext(request);
+  const body: Record<string, JsonValue> = {};
+  const referenceImagesConfig =
+    bodyConfig.referenceImages ?? request.httpConfig.referenceImages;
+
+  // request.body 在新模型里不是最终请求体，而是“项目字段 -> 第三方 path/value”的参数配置。
+  // 这里从空对象开始，把 extra 固定参数和页面业务参数写入对应 path 后，才得到真实发送 body。
+  applyConfiguredExtraBodyParams(body, bodyConfig, context);
+  applyConfiguredStandardBodyParams(body, bodyConfig, request, context);
+
+  if (request.httpConfig.request.contentType === 'multipart') {
+    return buildMultipartBody(body, request, referenceImagesConfig);
+  }
+
+  applyJsonReferenceImages(body, request, referenceImagesConfig);
+
+  return {
+    data: body,
+    logBody: body,
+  };
+}
+
+function buildLegacyConfiguredHttpBody(
+  request: ConfiguredHttpImageProviderRequest,
+) {
+  const context = getBusinessPlaceholderContext(request);
+  // 旧配置兼容：request.body 是配置页维护的静态模板；这里先深拷贝并替换 {{prompt}} 等占位符，
+  // 后续再按 bindings 把页面业务参数写入指定路径，避免直接修改数据库里的模板对象。
+  const body = renderJsonValueTemplates(
+    cloneJsonValue(request.httpConfig.request.body ?? {}),
+    context,
+  );
+
+  // 示例：Google 模板里的 contents[0].parts[0].text 初始为空，
+  // bindings.prompt 会在这里把真实提示词写进去。
+  applyBusinessBindings(body, request);
+
+  if (request.httpConfig.request.contentType === 'multipart') {
+    return buildMultipartBody(body, request, request.httpConfig.referenceImages);
+  }
+
+  // JSON 请求的参考图需要在普通业务参数写完后追加，
+  // 这样 contents[0].parts[] 这类路径可以继续在已有数组后 push 图片块。
+  applyJsonReferenceImages(body, request, request.httpConfig.referenceImages);
+
+  return {
+    data: body,
+    logBody: body,
+  };
+}
+
+function isConfiguredHttpBodyConfig(
+  value: unknown,
+): value is ImageProviderHttpBodyConfig {
+  if (!isJsonRecord(value)) {
+    return false;
+  }
+
+  return (
+    isConfiguredBodyField(value.prompt) ||
+    isConfiguredBodyField(value.aspectRatio) ||
+    isConfiguredBodyField(value.resolution) ||
+    isConfiguredQuantityField(value.quantity) ||
+    isConfiguredReferenceImagesField(value.referenceImages) ||
+    Array.isArray(value.extra)
+  );
+}
+
+function isConfiguredBodyField(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ('path' in value ||
+      'options' in value ||
+      'enabled' in value ||
+      'defaultValue' in value)
+  );
+}
+
+function isConfiguredQuantityField(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ('path' in value ||
+      'enabled' in value ||
+      'min' in value ||
+      'max' in value ||
+      'defaultValue' in value)
+  );
+}
+
+function isConfiguredReferenceImagesField(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ('mode' in value ||
+      'path' in value ||
+      'fieldName' in value ||
+      'template' in value ||
+      'maxCount' in value)
+  );
+}
+
+function getBusinessPlaceholderContext(
+  request: ConfiguredHttpImageProviderRequest,
+): PlaceholderContext {
+  return {
+    apiKey: request.apiKey,
+    prompt: request.prompt,
+    aspectRatio: request.aspectRatio,
+    resolution: request.resolution,
+    quantity: request.quantity,
+  };
+}
+
+function applyConfiguredExtraBodyParams(
+  body: JsonValue,
+  bodyConfig: ImageProviderHttpBodyConfig,
+  context: PlaceholderContext,
+) {
+  (bodyConfig.extra ?? []).forEach((entry) => {
+    // extra 是第三方接口私有的固定参数；用户手动控制 path/value，
+    // 后端只负责模板占位符替换和按 path 写入最终请求体。
+    const value = renderJsonValueTemplates(cloneJsonValue(entry.value), context);
+
+    writeValueByPath(body, entry.path, value);
+  });
+}
+
+function applyConfiguredStandardBodyParams(
+  body: JsonValue,
+  bodyConfig: ImageProviderHttpBodyConfig,
+  request: ConfiguredHttpImageProviderRequest,
+  context: PlaceholderContext,
+) {
+  applyConfiguredBodyField(body, bodyConfig.prompt, request.prompt, context);
+  applyConfiguredBodyField(
+    body,
+    bodyConfig.aspectRatio,
+    request.aspectRatio,
+    context,
+  );
+  applyConfiguredBodyField(
+    body,
+    bodyConfig.resolution,
+    request.resolution,
+    context,
+  );
+  applyConfiguredQuantityField(body, bodyConfig.quantity, request);
+}
+
+function applyConfiguredBodyField(
+  body: JsonValue,
+  field: ImageProviderHttpBodyField | undefined,
+  rawValue: string,
+  context: PlaceholderContext,
+) {
+  if (!field || field.enabled === false || !field.path) {
+    return;
+  }
+
+  const value = resolveConfiguredOptionValue(field, rawValue, context);
+
+  // `value: null` 表示该选项不写入第三方请求体，例如某些 Google 接口的 auto。
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  writeValueByPath(body, field.path, value);
+}
+
+function applyConfiguredQuantityField(
+  body: JsonValue,
+  field: ImageProviderHttpQuantityField | undefined,
+  request: ConfiguredHttpImageProviderRequest,
+) {
+  if (!field || field.enabled === false || !field.path) {
+    return;
+  }
+
+  const value = Number.isFinite(request.quantity)
+    ? request.quantity
+    : field.defaultValue;
+
+  if (value === undefined) {
+    return;
+  }
+
+  writeValueByPath(body, field.path, value);
+}
+
+function resolveConfiguredOptionValue(
+  field: ImageProviderHttpBodyField,
+  rawValue: string,
+  context: PlaceholderContext,
+): JsonValue | undefined {
+  const matchedOption = field.options?.find((option) =>
+    isConfiguredOptionMatch(option, rawValue),
+  );
+  const value =
+    matchedOption === undefined
+      ? rawValue
+      : getConfiguredOptionRequestValue(matchedOption, rawValue);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return renderJsonValueTemplates(cloneJsonValue(value), context);
+}
+
+function isConfiguredOptionMatch(
+  option: ImageProviderHttpBodyOption,
+  rawValue: string,
+) {
+  if (isConfiguredOptionObject(option)) {
+    return (
+      option.label === rawValue ||
+      stringifyComparableJson(option.value) === rawValue
+    );
+  }
+
+  return stringifyComparableJson(option) === rawValue;
+}
+
+function getConfiguredOptionRequestValue(
+  option: ImageProviderHttpBodyOption,
+  rawValue: string,
+): JsonValue | undefined {
+  if (isConfiguredOptionObject(option)) {
+    return option.value === undefined ? option.label : option.value;
+  }
+
+  return option === undefined ? rawValue : option;
+}
+
+function isConfiguredOptionObject(
+  value: ImageProviderHttpBodyOption,
+): value is { label: string; value?: JsonValue } {
+  return isJsonRecord(value) && typeof value.label === 'string';
+}
+
+function stringifyComparableJson(value: JsonValue | undefined) {
+  if (value === undefined) {
+    return '';
+  }
+
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value === null
+  ) {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
+}
+
+function applyBusinessBindings(
+  body: JsonValue,
+  request: ConfiguredHttpImageProviderRequest,
+) {
+  const bindingEntries = Object.entries(
+    request.httpConfig.bindings ?? {},
+  ) as Array<
+    [
+      keyof NonNullable<ImageProviderHttpConfig['bindings']>,
+      ImageProviderHttpBinding | undefined,
+    ]
+  >;
+
+  bindingEntries.forEach(([key, binding]) => {
+    if (!binding || binding.enabled === false || !binding.path) {
+      return;
+    }
+
+    // rawValue 来自生图页面的稳定业务参数；第三方字段名和层级差异只由 binding.path 表达。
+    const rawValue = {
+      prompt: request.prompt,
+      aspectRatio: request.aspectRatio,
+      resolution: request.resolution,
+      quantity: request.quantity,
+    }[key];
+    const value = normalizeBindingValue(rawValue, binding);
+
+    if (value === undefined) {
+      return;
+    }
+
+    writeValueByPath(body, binding.path, value);
+  });
+}
+
+function normalizeBindingValue(
+  value: string | number,
+  binding: ImageProviderHttpBinding,
+) {
+  if (
+    binding.omitWhen !== undefined &&
+    JSON.stringify(binding.omitWhen) === JSON.stringify(value)
+  ) {
+    return binding.defaultValue;
+  }
+
+  const mapped = binding.map?.[String(value)];
+
+  if (mapped !== undefined) {
+    return mapped;
+  }
+
+  return value;
+}
+
+function applyJsonReferenceImages(
+  body: JsonValue,
+  request: ConfiguredHttpImageProviderRequest,
+  config: ImageProviderHttpReferenceImages,
+) {
+  const referenceImages = request.referenceImages ?? [];
+
+  if (referenceImages.length === 0) {
+    return;
+  }
+
+  const mode = config?.mode ?? 'none';
+  assertReferenceImageCount(referenceImages, config);
+
+  if (mode === 'none') {
+    throw new BadGatewayException('Reference images are not supported');
+  }
+
+  if (mode === 'multipart') {
+    throw new BadGatewayException(
+      'Reference image mode must be inlineBase64 for JSON requests',
+    );
+  }
+
+  if (mode === 'urlArray') {
+    throw new BadGatewayException(
+      'Reference image URL mode requires OSS support',
+    );
+  }
+
+  if (!config?.path) {
+    throw new BadGatewayException('Reference image path is required');
+  }
+
+  const values = referenceImages.map((image) => {
+    const parsed = parseDataUrl(image);
+    // inlineBase64 模式把前端 data URL 拆成 mimeType + 纯 base64，
+    // 再套入配置里的 template，例如 Google 的 inlineData 结构。
+    return renderJsonValueTemplates(config.template ?? '{{base64}}', {
+      ...getBusinessPlaceholderContext(request),
+      dataUrl: image,
+      mimeType: parsed.mimeType,
+      base64: parsed.content.toString('base64'),
+    });
+  });
+
+  if (config.path.endsWith('[]')) {
+    values.forEach((value) => writeValueByPath(body, config.path!, value));
+    return;
+  }
+
+  writeValueByPath(body, config.path, values.length === 1 ? values[0] : values);
+}
+
+function buildMultipartBody(
+  body: JsonValue,
+  request: ConfiguredHttpImageProviderRequest,
+  referenceImagesConfig: ImageProviderHttpReferenceImages,
+) {
+  const form = new FormData();
+  const logBody: Record<string, unknown> = {};
+
+  appendBodyFieldsToForm(form, logBody, body);
+  appendMultipartReferenceImages(form, logBody, request, referenceImagesConfig);
+
+  return {
+    data: form,
+    logBody,
+  };
+}
+
+function appendBodyFieldsToForm(
+  form: FormData,
+  logBody: Record<string, unknown>,
+  body: JsonValue,
+) {
+  if (!isJsonRecord(body)) {
+    form.set('body', JSON.stringify(body));
+    logBody.body = body;
+    return;
+  }
+
+  Object.entries(body).forEach(([key, value]) => {
+    const formValue = typeof value === 'string' ? value : JSON.stringify(value);
+    form.set(key, formValue);
+    logBody[key] = value;
+  });
+}
+
+function appendMultipartReferenceImages(
+  form: FormData,
+  logBody: Record<string, unknown>,
+  request: ConfiguredHttpImageProviderRequest,
+  config: ImageProviderHttpReferenceImages,
+) {
+  const referenceImages = request.referenceImages ?? [];
+
+  if (referenceImages.length === 0) {
+    return;
+  }
+
+  const mode = config?.mode ?? 'none';
+  assertReferenceImageCount(referenceImages, config);
+
+  if (mode !== 'multipart') {
+    throw new BadGatewayException('Reference image mode must be multipart');
+  }
+
+  const fieldName = config?.fieldName || 'image';
+  const imageLogs: string[] = [];
+
+  referenceImages.forEach((image, index) => {
+    const parsed = parseDataUrl(image);
+    form.append(
+      fieldName,
+      new Blob([parsed.content], { type: parsed.mimeType }),
+      `reference-${index + 1}.${mimeTypeToExtension(parsed.mimeType)}`,
+    );
+    imageLogs.push(truncateImageLogValue(image));
+  });
+
+  logBody[fieldName] = imageLogs;
+}
+
+function assertReferenceImageCount(
+  referenceImages: string[],
+  config: ImageProviderHttpReferenceImages,
+) {
+  const maxCount = config?.maxCount ?? 16;
+
+  if (referenceImages.length > maxCount) {
+    throw new BadGatewayException(`最多支持 ${maxCount} 张参考图`);
+  }
+}
+
+async function executeConfiguredHttpRequest(
+  request: ConfiguredHttpBuiltRequest,
+  data: unknown,
+  logBody: unknown,
+) {
+  logConfiguredProviderRequest(request, logBody);
+
+  if (request.method === 'GET') {
+    return getWithProviderError<unknown>(request.url, request.headers);
+  }
+
+  return postWithProviderError<unknown>(request.url, data, request.headers);
+}
+
+async function pollConfiguredHttpTask(
+  createResponse: unknown,
+  request: ConfiguredHttpImageProviderRequest,
+) {
+  const polling = request.httpConfig.polling;
+
+  if (!polling) {
+    throw new BadGatewayException('Polling config is required');
+  }
+
+  const taskId = getStringByPath(createResponse, polling.taskIdPath);
+
+  if (!taskId) {
+    throw new BadGatewayException('Image provider did not return task ID');
+  }
+
+  const intervalMs = polling.intervalMs ?? defaultPollingIntervalMs;
+  const timeoutMs = polling.timeoutMs ?? defaultPollingTimeoutMs;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const context = {
+      ...getBusinessPlaceholderContext(request),
+      taskId,
+    };
+    const pollRequest = buildConfiguredHttpRequest(polling.request, context);
+    const pollBody = renderJsonValueTemplates(
+      cloneJsonValue(polling.request.body ?? {}),
+      context,
+    );
+    const task = await executeConfiguredHttpRequest(
+      pollRequest,
+      pollBody,
+      pollBody,
+    );
+    const status = getStringByPath(task, polling.statusPath);
+
+    if (status === polling.successValue) {
+      return task;
+    }
+
+    if (polling.failureValue && status === polling.failureValue) {
+      logProviderResponsePayload(task);
+      throw new BadGatewayException(
+        extractProviderErrorMessage(task) ?? 'Image provider task failed',
+      );
+    }
+
+    await delay(intervalMs);
+  }
+
+  throw new BadGatewayException('Image provider polling timed out');
+}
+
+async function extractConfiguredHttpResult(
+  payload: unknown,
+  responseConfig: ImageProviderHttpResponse,
+): Promise<ImageProviderResult> {
+  const images = await extractConfiguredImages(payload, responseConfig);
+  const tokenUsage = extractConfiguredTokenUsage(payload, responseConfig);
+
+  return {
+    images,
+    tokenUsage,
+  };
+}
+
+async function extractConfiguredImages(
+  payload: unknown,
+  responseConfig: ImageProviderHttpResponse,
+) {
+  const imageConfig = responseConfig.images;
+  const dataPath = imageConfig.dataPath;
+  const urlPath = imageConfig.urlPath ?? dataPath;
+
+  if (imageConfig.type === 'url') {
+    if (!urlPath) {
+      throw new BadGatewayException('Image URL path is required');
+    }
+
+    const urls = getStringArrayByPath(payload, urlPath);
+
+    if (urls.length === 0) {
+      throw new BadGatewayException('Image provider did not return image URL');
+    }
+
+    return Promise.all(urls.map(downloadRemoteImage));
+  }
+
+  if (!dataPath) {
+    throw new BadGatewayException('Image data path is required');
+  }
+
+  const values = getStringArrayByPath(payload, dataPath);
+  const mimeTypes = imageConfig.mimeTypePath
+    ? getStringArrayByPath(payload, imageConfig.mimeTypePath)
+    : [];
+
+  if (values.length === 0) {
+    throw new BadGatewayException('Image provider did not return image data');
+  }
+
+  if (imageConfig.type === 'dataUrl') {
+    return values.map((value) => {
+      const parsed = parseDataUrl(value);
+
+      return {
+        content: parsed.content,
+        mimeType: parsed.mimeType,
+      };
+    });
+  }
+
+  return values.map((value, index) => {
+    if (value.startsWith('data:')) {
+      const parsed = parseDataUrl(value);
+
+      return {
+        content: parsed.content,
+        mimeType: parsed.mimeType,
+      };
+    }
+
+    return {
+      content: Buffer.from(value, 'base64'),
+      mimeType: mimeTypes[index] ?? imageConfig.mimeType ?? 'image/png',
+    };
+  });
+}
+
+function extractConfiguredTokenUsage(
+  payload: unknown,
+  responseConfig: ImageProviderHttpResponse,
+) {
+  const path = responseConfig.usage?.totalTokensPath;
+
+  if (!path) {
+    return undefined;
+  }
+
+  const value = getValuesByPath(payload, path)[0];
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined;
+  }
+
+  return undefined;
+}
+
+function cloneJsonValue<T extends JsonValue | undefined>(value: T): T {
+  if (value === undefined) {
+    return value;
+  }
+
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function renderJsonValueTemplates<T extends JsonValue>(
+  value: T,
+  context: PlaceholderContext,
+): T {
+  if (typeof value === 'string') {
+    return renderTemplate(value, context) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => renderJsonValueTemplates(item, context)) as T;
+  }
+
+  if (isJsonRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        renderJsonValueTemplates(item, context),
+      ]),
+    ) as T;
+  }
+
+  return value;
+}
+
+function renderTemplate(value: string, context: PlaceholderContext) {
+  return value.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+    const nextValue = context[key];
+
+    return nextValue === undefined ? '' : String(nextValue);
+  });
+}
+
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 type StandardOpenAiFields = {
@@ -482,6 +1241,27 @@ function logProviderRequest(
   );
 }
 
+function logConfiguredProviderRequest(
+  request: ConfiguredHttpBuiltRequest,
+  body: unknown,
+) {
+  providerLogger.log(
+    '\n' +
+      JSON.stringify(
+        {
+          message: 'Provider image request',
+          method: request.method,
+          contentType: request.contentType,
+          url: redactProviderUrl(request.url),
+          headers: redactProviderHeaders(request.headers),
+          body: toProviderRequestLogPayload(body),
+        },
+        null,
+        2,
+      ),
+  );
+}
+
 /**
  * 仅打印第三方接口返回摘要，避免混入任务上下文或敏感请求内容。
  */
@@ -524,6 +1304,77 @@ function toProviderLogPayload(payload: unknown) {
   }
 
   return payload;
+}
+
+function toProviderRequestLogPayload(payload: unknown) {
+  if (payload === undefined || payload === null) {
+    return payload;
+  }
+
+  if (typeof payload === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(payload, redactRequestPayload));
+    } catch {
+      return '[unserializable provider request]';
+    }
+  }
+
+  if (typeof payload === 'string') {
+    return redactRequestPayload('', payload);
+  }
+
+  return payload;
+}
+
+function redactRequestPayload(key: string, value: unknown) {
+  if (isSensitiveKey(key)) {
+    return '[redacted]';
+  }
+
+  if (typeof value === 'string' && isImagePayloadString(value)) {
+    return truncateImageLogValue(value);
+  }
+
+  return value;
+}
+
+function redactProviderHeaders(headers: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      isSensitiveKey(key) ? '[redacted]' : value,
+    ]),
+  );
+}
+
+function redactProviderUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+
+    parsed.searchParams.forEach((_, key) => {
+      if (isSensitiveKey(key)) {
+        parsed.searchParams.set(key, '[redacted]');
+      }
+    });
+
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function isSensitiveKey(key: string) {
+  return /api[_-]?key|authorization|token|secret|access[_-]?key/i.test(key);
+}
+
+function isImagePayloadString(value: string) {
+  if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value)) {
+    return true;
+  }
+
+  const compact = value.replace(/\s/g, '');
+
+  return compact.length > 80 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
 }
 
 /**
@@ -718,6 +1569,8 @@ function toOpenAiSize(aspectRatio: AspectRatio, resolution: ImageResolution) {
       return '864x1536';
     case '1:1':
       return '1024x1024';
+    default:
+      return '1024x1024';
   }
 }
 
@@ -733,6 +1586,8 @@ function toOpenAiQuality(resolution: ImageResolution) {
     case '2k':
     case '4k':
       return 'high';
+    default:
+      return 'medium';
   }
 }
 
@@ -748,6 +1603,8 @@ function toGeminiImageSize(resolution: ImageResolution) {
       return '2K';
     case '4k':
       return '4K';
+    default:
+      return '1K';
   }
 }
 
@@ -772,13 +1629,94 @@ function getStringArrayByPath(payload: unknown, path: string) {
 /**
  * 支持 `a.b` 与 `items[].url` 这类受控路径读取。
  */
+type PathSegment = {
+  key: string;
+  index?: number;
+  arrayAll: boolean;
+};
+
+function writeValueByPath(target: JsonValue, path: string, value: JsonValue) {
+  const segments = parsePath(path);
+
+  if (segments.length === 0) {
+    throw new BadGatewayException('Path is required');
+  }
+
+  let current: JsonValue = target;
+
+  segments.slice(0, -1).forEach((segment) => {
+    if (segment.arrayAll) {
+      throw new BadGatewayException(
+        'Array expansion is only supported at the end of write paths',
+      );
+    }
+
+    current = ensurePathChild(current, segment);
+  });
+
+  setPathValue(current, segments[segments.length - 1], value);
+}
+
+function ensurePathChild(current: JsonValue, segment: PathSegment) {
+  if (!isJsonRecord(current)) {
+    throw new BadGatewayException('Cannot write into non-object path segment');
+  }
+
+  if (segment.index !== undefined) {
+    const existing = current[segment.key];
+    const arrayValue = Array.isArray(existing) ? existing : [];
+
+    current[segment.key] = arrayValue;
+
+    if (!isJsonRecord(arrayValue[segment.index])) {
+      arrayValue[segment.index] = {};
+    }
+
+    return arrayValue[segment.index];
+  }
+
+  if (!isJsonRecord(current[segment.key])) {
+    current[segment.key] = {};
+  }
+
+  return current[segment.key];
+}
+
+function setPathValue(
+  current: JsonValue,
+  segment: PathSegment,
+  value: JsonValue,
+) {
+  if (!isJsonRecord(current)) {
+    throw new BadGatewayException('Cannot write into non-object path segment');
+  }
+
+  if (segment.arrayAll) {
+    const existing = current[segment.key];
+    const arrayValue = Array.isArray(existing) ? existing : [];
+
+    arrayValue.push(value);
+    current[segment.key] = arrayValue;
+    return;
+  }
+
+  if (segment.index !== undefined) {
+    const existing = current[segment.key];
+    const arrayValue = Array.isArray(existing) ? existing : [];
+
+    arrayValue[segment.index] = value;
+    current[segment.key] = arrayValue;
+    return;
+  }
+
+  current[segment.key] = value;
+}
+
 function getValuesByPath(payload: unknown, path: string) {
-  const segments = path.split('.').filter(Boolean);
+  const segments = parsePath(path);
   let values = [payload];
 
   segments.forEach((segment) => {
-    const isArraySegment = segment.endsWith('[]');
-    const key = isArraySegment ? segment.slice(0, -2) : segment;
     const nextValues: unknown[] = [];
 
     values.forEach((value) => {
@@ -786,11 +1724,18 @@ function getValuesByPath(payload: unknown, path: string) {
         return;
       }
 
-      const nextValue = (value as Record<string, unknown>)[key];
+      const nextValue = (value as Record<string, unknown>)[segment.key];
 
-      if (isArraySegment) {
+      if (segment.arrayAll) {
         if (Array.isArray(nextValue)) {
           nextValues.push(...nextValue);
+        }
+        return;
+      }
+
+      if (segment.index !== undefined) {
+        if (Array.isArray(nextValue)) {
+          nextValues.push(nextValue[segment.index]);
         }
         return;
       }
@@ -802,6 +1747,25 @@ function getValuesByPath(payload: unknown, path: string) {
   });
 
   return values;
+}
+
+function parsePath(path: string): PathSegment[] {
+  return path
+    .split('.')
+    .filter(Boolean)
+    .map((segment) => {
+      const match = segment.match(/^([^\[\]]+)(?:\[(\d*)\])?$/);
+
+      if (!match) {
+        throw new BadGatewayException(`Invalid path segment: ${segment}`);
+      }
+
+      return {
+        key: match[1],
+        index: match[2] && match[2] !== '' ? Number(match[2]) : undefined,
+        arrayAll: match[2] === '',
+      };
+    });
 }
 
 /**

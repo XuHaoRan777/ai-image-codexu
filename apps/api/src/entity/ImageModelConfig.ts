@@ -2,6 +2,7 @@ import type {
   ImageProviderDeliveryMode,
   ImageProviderFieldMapping,
   ImageProviderFieldOverrides,
+  ImageProviderHttpConfig,
   ImageProviderPollingConfig,
   ImageProviderType,
 } from '@ai-image-codexu/shared';
@@ -19,7 +20,7 @@ export class ImageModelConfigEntity {
     type: 'varchar',
     length: 40,
     name: 'provider_type',
-    default: 'openai-compatible',
+    default: 'configurable-http',
   })
   providerType: ImageProviderType;
 
@@ -82,6 +83,9 @@ export class ImageModelConfigEntity {
 
   @Column({ type: 'simple-json', name: 'polling_config', nullable: true })
   pollingConfig: ImageProviderPollingConfig | null;
+
+  @Column({ type: 'simple-json', name: 'http_config', nullable: true })
+  httpConfig: ImageProviderHttpConfig | null;
 
   @Column({ type: 'boolean', name: 'enabled', default: true })
   enabled: boolean;

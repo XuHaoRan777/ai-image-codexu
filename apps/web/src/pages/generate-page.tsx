@@ -1,4 +1,10 @@
-import { useEffect, useState, type ChangeEvent, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react"
 import {
   aspectRatios,
   imageQuantities,
@@ -6,8 +12,12 @@ import {
   type AspectRatio,
   type ImageJob,
   type ImageModelConfig,
+  type ImageProviderHttpBodyConfig,
+  type ImageProviderHttpBodyField,
+  type ImageProviderHttpBodyOption,
   type ImageQuantity,
   type ImageResolution,
+  type JsonValue,
 } from "@ai-image-codexu/shared"
 import {
   Expand,
@@ -32,12 +42,12 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  aspectRatioLabels,
+  formatAspectRatioLabel,
   formatElapsedTime,
+  formatResolutionLabel,
   formatShortTime,
   getImageJobUrls,
   isImageJobActive,
-  resolutionLabels,
   statusLabels,
   statusToneClassNames,
   type ReferenceImage,
@@ -45,7 +55,184 @@ import {
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 
-const maxReferenceImages = 6
+type SelectOption = {
+  label: string
+  value: string
+}
+
+function getGenerationControlOptions(config?: ImageModelConfig) {
+  const bodyConfig = getHttpBodyParameterConfig(config)
+
+  return {
+    aspectRatios: getConfiguredSelectOptions(
+      bodyConfig?.aspectRatio,
+      aspectRatios,
+    ),
+    resolutions: getConfiguredSelectOptions(
+      bodyConfig?.resolution,
+      imageResolutions,
+    ),
+    quantities: getConfiguredQuantityOptions(bodyConfig?.quantity),
+    maxReferenceImages: getConfiguredReferenceImageMax(config, bodyConfig),
+  }
+}
+
+function getHttpBodyParameterConfig(config?: ImageModelConfig) {
+  const body = config?.httpConfig?.request.body
+
+  return isHttpBodyParameterConfig(body)
+    ? (body as ImageProviderHttpBodyConfig)
+    : undefined
+}
+
+function isHttpBodyParameterConfig(
+  value: unknown,
+): value is ImageProviderHttpBodyConfig {
+  if (!isJsonRecord(value)) {
+    return false
+  }
+
+  return (
+    isBodyFieldConfig(value.prompt) ||
+    isBodyFieldConfig(value.aspectRatio) ||
+    isBodyFieldConfig(value.resolution) ||
+    isQuantityFieldConfig(value.quantity) ||
+    isReferenceImagesConfig(value.referenceImages) ||
+    Array.isArray(value.extra)
+  )
+}
+
+function isBodyFieldConfig(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ("path" in value ||
+      "options" in value ||
+      "enabled" in value ||
+      "defaultValue" in value)
+  )
+}
+
+function isQuantityFieldConfig(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ("path" in value ||
+      "enabled" in value ||
+      "min" in value ||
+      "max" in value ||
+      "defaultValue" in value)
+  )
+}
+
+function isReferenceImagesConfig(value: unknown) {
+  return (
+    isJsonRecord(value) &&
+    ("mode" in value ||
+      "path" in value ||
+      "fieldName" in value ||
+      "template" in value ||
+      "maxCount" in value)
+  )
+}
+
+function getConfiguredSelectOptions(
+  field: ImageProviderHttpBodyField | undefined,
+  fallback: readonly string[],
+): SelectOption[] {
+  const configuredOptions = field?.options
+    ?.map(normalizeConfiguredOption)
+    .filter((option): option is SelectOption => Boolean(option))
+
+  if (configuredOptions && configuredOptions.length > 0) {
+    return configuredOptions
+  }
+
+  return fallback.map((value) => ({ label: value, value }))
+}
+
+function normalizeConfiguredOption(
+  option: ImageProviderHttpBodyOption,
+): SelectOption | undefined {
+  if (isConfiguredOptionObject(option)) {
+    return {
+      label: option.label,
+      // 前端提交项目语义值(label)，后端再按同一 option 的 value 转成第三方 API 值。
+      value: option.label,
+    }
+  }
+
+  const label = stringifyOptionLabel(option)
+
+  return label ? { label, value: label } : undefined
+}
+
+function isConfiguredOptionObject(
+  value: ImageProviderHttpBodyOption,
+): value is { label: string; value?: JsonValue } {
+  return isJsonRecord(value) && typeof value.label === "string"
+}
+
+function stringifyOptionLabel(value: JsonValue | undefined) {
+  if (value === undefined || value === null) {
+    return ""
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value)
+  }
+
+  return JSON.stringify(value)
+}
+
+function getConfiguredQuantityOptions(
+  field: ImageProviderHttpBodyConfig["quantity"] | undefined,
+) {
+  if (!field) {
+    return [...imageQuantities]
+  }
+
+  if (field.enabled === false) {
+    return [field.defaultValue ?? 1]
+  }
+
+  const min = field.min ?? 1
+  const max = field.max ?? 3
+  const start = Math.max(1, Math.min(min, max))
+  const end = Math.max(start, Math.min(max, 16))
+
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+}
+
+function getConfiguredReferenceImageMax(
+  config: ImageModelConfig | undefined,
+  bodyConfig: ImageProviderHttpBodyConfig | undefined,
+) {
+  const referenceConfig =
+    bodyConfig?.referenceImages ?? config?.httpConfig?.referenceImages
+
+  if (!referenceConfig) {
+    return 0
+  }
+
+  if (referenceConfig.mode === "none") {
+    return 0
+  }
+
+  return referenceConfig.maxCount ?? 16
+}
+
+function firstMissingOptionValue(value: string, options: SelectOption[]) {
+  return options.some((option) => option.value === value)
+    ? ""
+    : (options[0]?.value ?? "")
+}
+
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
 
 export function GeneratePage({
   aspectRatio,
@@ -95,6 +282,50 @@ export function GeneratePage({
   onSelectedConfigChange: (value: string) => void
 }) {
   const generationControlsDisabled = isGenerating || optimizingPrompt
+  const controlOptions = useMemo(
+    () => getGenerationControlOptions(selectedConfig),
+    [selectedConfig],
+  )
+
+  useEffect(() => {
+    const nextAspectRatio = firstMissingOptionValue(
+      aspectRatio,
+      controlOptions.aspectRatios,
+    )
+
+    if (nextAspectRatio) {
+      onAspectRatioChange(nextAspectRatio)
+    }
+  }, [aspectRatio, controlOptions.aspectRatios, onAspectRatioChange])
+
+  useEffect(() => {
+    const nextResolution = firstMissingOptionValue(
+      resolution,
+      controlOptions.resolutions,
+    )
+
+    if (nextResolution) {
+      onResolutionChange(nextResolution)
+    }
+  }, [controlOptions.resolutions, onResolutionChange, resolution])
+
+  useEffect(() => {
+    if (!controlOptions.quantities.includes(quantity)) {
+      onQuantityChange(controlOptions.quantities[0] ?? 1)
+    }
+  }, [controlOptions.quantities, onQuantityChange, quantity])
+
+  useEffect(() => {
+    if (referenceImages.length > controlOptions.maxReferenceImages) {
+      onReferenceImagesChange(
+        referenceImages.slice(0, controlOptions.maxReferenceImages),
+      )
+    }
+  }, [
+    controlOptions.maxReferenceImages,
+    onReferenceImagesChange,
+    referenceImages,
+  ])
 
   return (
     <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)]">
@@ -107,6 +338,7 @@ export function GeneratePage({
         </CardHeader>
         <CardContent className="motion-stagger grid gap-4 pt-1 lg:min-h-0 lg:overflow-y-auto lg:overflow-x-hidden">
           <ReferenceImagesField
+            maxReferenceImages={controlOptions.maxReferenceImages}
             referenceImages={referenceImages}
             onReferenceImagesChange={onReferenceImagesChange}
           />
@@ -127,9 +359,9 @@ export function GeneratePage({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {aspectRatios.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {aspectRatioLabels[value]}
+                  {controlOptions.aspectRatios.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {formatAspectRatioLabel(option.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -151,9 +383,9 @@ export function GeneratePage({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {imageResolutions.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {resolutionLabels[value]}
+                  {controlOptions.resolutions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {formatResolutionLabel(option.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -175,7 +407,7 @@ export function GeneratePage({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {imageQuantities.map((value) => (
+                  {controlOptions.quantities.map((value) => (
                     <SelectItem key={value} value={String(value)}>
                       {value}
                     </SelectItem>
@@ -419,7 +651,7 @@ function GeneratingPreviewState({
       <div className="grid gap-2">
         <p className="text-xs leading-5 text-muted-foreground">
           {job
-            ? `${job.configName} · ${aspectRatioLabels[job.aspectRatio]} · ${resolutionLabels[job.resolution]} · ${job.quantity} 张 · 已等待 ${formatElapsedTime(job.createdAt, now)}`
+            ? `${job.configName} · ${formatAspectRatioLabel(job.aspectRatio)} · ${formatResolutionLabel(job.resolution)} · ${job.quantity} 张 · 已等待 ${formatElapsedTime(job.createdAt, now)}`
             : "正在创建任务。"}
         </p>
       </div>
@@ -545,9 +777,11 @@ function ImagePreviewDialog({
 }
 
 function ReferenceImagesField({
+  maxReferenceImages,
   referenceImages,
   onReferenceImagesChange,
 }: {
+  maxReferenceImages: number
   referenceImages: ReferenceImage[]
   onReferenceImagesChange: (value: ReferenceImage[]) => void
 }) {
@@ -567,11 +801,15 @@ function ReferenceImagesField({
       toast.warning("只支持上传图片文件")
     }
     if (remaining <= 0) {
-      toast.warning("最多上传 6 张参考图")
+      toast.warning(
+        maxReferenceImages > 0
+          ? `最多上传 ${maxReferenceImages} 张参考图`
+          : "当前模型不支持参考图",
+      )
       return
     }
     if (imageFiles.length > remaining) {
-      toast.warning("最多上传 6 张参考图")
+      toast.warning(`最多上传 ${maxReferenceImages} 张参考图`)
     }
 
     try {
@@ -693,6 +931,8 @@ function getPreviewFrameClass(aspectRatio: AspectRatio) {
     case "9:16":
       return "aspect-[9/16] max-w-[360px]"
     case "1:1":
+      return "aspect-square max-w-[640px]"
+    default:
       return "aspect-square max-w-[640px]"
   }
 }

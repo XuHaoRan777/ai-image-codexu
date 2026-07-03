@@ -1,5 +1,8 @@
 import type { Repository } from 'typeorm';
-import { ImageProviderTypeEnum } from '@ai-image-codexu/shared';
+import {
+  ImageProviderTypeEnum,
+  type ImageProviderHttpConfig,
+} from '@ai-image-codexu/shared';
 import { decryptSecret } from '../../common/utils/secretCrypto';
 import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
@@ -20,12 +23,16 @@ describe('ImageGenerationService', () => {
     jobRepository = createMemoryRepository<ImageJobEntity>();
     deletedImageUrls = [];
     dispatcher = {
-      generate: jest.fn(async () => [
-        {
-          content: Buffer.from('image'),
-          mimeType: 'image/png',
-        },
-      ]),
+      generate: jest.fn(),
+      generateConfiguredHttp: jest.fn(async () => ({
+        images: [
+          {
+            content: Buffer.from('image'),
+            mimeType: 'image/png',
+          },
+        ],
+        tokenUsage: 42,
+      })),
     } as unknown as ImageProviderDispatcher;
     service = new ImageGenerationService(
       modelRepository,
@@ -54,7 +61,7 @@ describe('ImageGenerationService', () => {
   it('creates and updates image model configs with encrypted API keys', async () => {
     const created = await service.createImageModelConfig({
       name: 'custom',
-      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
       deliveryMode: 'sync',
       baseUrl: 'https://example.com',
       generationPath: '/v1/images/generations',
@@ -63,10 +70,11 @@ describe('ImageGenerationService', () => {
       modelName: 'gpt-image-2',
       fieldMapping: {},
       fieldOverrides: { quality: false },
+      httpConfig: createHttpConfig(),
       enabled: true,
     });
 
-    expect(created.providerType).toBe('openai-compatible');
+    expect(created.providerType).toBe('configurable-http');
     expect(created.baseUrl).toBe('https://example.com');
     expect(created.fieldOverrides).toEqual({ quality: false });
     expect(created.apiKeyMasked).toBe('sk-****cret');
@@ -96,11 +104,12 @@ describe('ImageGenerationService', () => {
   it('updates image model config enabled state only', async () => {
     const created = await service.createImageModelConfig({
       name: 'custom',
-      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
       deliveryMode: 'sync',
       baseUrl: 'https://example.com',
       apiKey: 'sk-test-secret',
       modelName: 'gpt-image-2',
+      httpConfig: createHttpConfig(),
       enabled: true,
     });
     const storedBefore = await modelRepository.findOneBy({ id: created.id });
@@ -122,13 +131,14 @@ describe('ImageGenerationService', () => {
   it('creates image jobs with selected config', async () => {
     const config = await service.createImageModelConfig({
       name: 'custom',
-      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
       deliveryMode: 'sync',
       baseUrl: 'https://example.com',
       generationPath: '/v1/images/generations',
       editPath: '/v1/images/edits',
       apiKey: 'sk-test-secret',
       modelName: 'gpt-image-2',
+      httpConfig: createHttpConfig(),
       enabled: true,
     });
     const job = await service.createImageJob({
@@ -141,7 +151,7 @@ describe('ImageGenerationService', () => {
 
     expect(job.status).toBe('queued');
     expect(job.configId).toBe(config.id);
-    expect(job.providerType).toBe('openai-compatible');
+    expect(job.providerType).toBe('configurable-http');
     expect(job.modelName).toBe('gpt-image-2');
     expect(job.aspectRatio).toBe('auto');
     expect(job.resolution).toBe('1k');
@@ -157,19 +167,19 @@ describe('ImageGenerationService', () => {
     const updated = await service.getImageJob(job.id);
     expect(updated?.status).toBe('succeeded');
     expect(updated?.imageUrl).toBe(`/api/images/generated/${job.id}-1.png`);
+    expect(updated?.tokenUsage).toBe(42);
     await expect(service.listImageJobs()).resolves.toEqual([
       expect.objectContaining({
         id: job.id,
         status: 'succeeded',
         imageUrl: `/api/images/generated/${job.id}-1.png`,
+        tokenUsage: 42,
       }),
     ]);
-    expect(dispatcher.generate).toHaveBeenCalledWith(
+    expect(dispatcher.generateConfiguredHttp).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerType: ImageProviderTypeEnum.OpenAICompatible,
         deliveryMode: 'sync',
-        baseUrl: 'https://example.com',
-        modelName: 'gpt-image-2',
+        httpConfig: createHttpConfig(),
       }),
     );
   });
@@ -177,7 +187,7 @@ describe('ImageGenerationService', () => {
   it('uses the configured model name for low capability channel configs', async () => {
     const config = await service.createImageModelConfig({
       name: 'aicodewith beta',
-      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
       deliveryMode: 'polling',
       baseUrl: 'https://api.aicodewith.com',
       apiKey: 'sk-test-secret',
@@ -187,6 +197,7 @@ describe('ImageGenerationService', () => {
         quality: false,
         resolution: false,
       },
+      httpConfig: createHttpConfig(),
       enabled: true,
     });
     const job = await service.createImageJob({
@@ -201,31 +212,26 @@ describe('ImageGenerationService', () => {
 
     await jest.runAllTimersAsync();
 
-    expect(dispatcher.generate).toHaveBeenCalledWith(
+    expect(dispatcher.generateConfiguredHttp).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerType: ImageProviderTypeEnum.OpenAICompatible,
         deliveryMode: 'polling',
-        modelName: 'gpt-image-2-beta',
-        fieldOverrides: {
-          quantity: false,
-          quality: false,
-          resolution: false,
-        },
+        httpConfig: createHttpConfig(),
       }),
     );
   });
 
   it('removes image job records when provider throws', async () => {
     jest
-      .spyOn(dispatcher, 'generate')
+      .spyOn(dispatcher, 'generateConfiguredHttp')
       .mockRejectedValueOnce(new Error('provider failed'));
     const config = await service.createImageModelConfig({
       name: 'custom',
-      providerType: ImageProviderTypeEnum.OpenAICompatible,
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
       deliveryMode: 'sync',
       baseUrl: 'https://example.com',
       apiKey: 'sk-test-secret',
       modelName: 'gpt-image-2',
+      httpConfig: createHttpConfig(),
       enabled: true,
     });
     const job = await service.createImageJob({
@@ -261,6 +267,7 @@ describe('ImageGenerationService', () => {
         '/api/images/generated/job-delete-1.png',
         '/api/images/generated/job-delete-2.png',
       ],
+      tokenUsage: 42,
       errorMessage: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -274,6 +281,39 @@ describe('ImageGenerationService', () => {
     ]);
   });
 });
+
+function createHttpConfig(): ImageProviderHttpConfig {
+  return {
+    request: {
+      method: 'POST',
+      url: 'https://example.com/v1/images/generations',
+      contentType: 'json',
+      headers: {
+        Authorization: 'Bearer {{apiKey}}',
+      },
+      body: {
+        prompt: {
+          path: 'prompt',
+        },
+        extra: [
+          {
+            path: 'model',
+            value: 'gpt-image-2',
+          },
+        ],
+      },
+    },
+    response: {
+      images: {
+        type: 'base64',
+        dataPath: 'data[].b64_json',
+      },
+      usage: {
+        totalTokensPath: 'usage.total_tokens',
+      },
+    },
+  };
+}
 
 /**
  * 创建用于单元测试的内存版 TypeORM Repository。

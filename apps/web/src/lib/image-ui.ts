@@ -23,11 +23,13 @@ export const assistantModeLabels: Record<AssistantProviderMode, string> = {
 }
 
 export const providerTypeLabels: Record<ImageProviderType, string> = {
+  [ImageProviderTypeEnum.ConfigurableHttp]: "Configurable HTTP",
   [ImageProviderTypeEnum.OpenAICompatible]: "OpenAI-compatible",
   [ImageProviderTypeEnum.GoogleCompatible]: "Google-compatible",
 }
 
 export const providerDefaultModelNames: Record<ImageProviderType, string> = {
+  [ImageProviderTypeEnum.ConfigurableHttp]: "",
   [ImageProviderTypeEnum.OpenAICompatible]: "gpt-image-2",
   [ImageProviderTypeEnum.GoogleCompatible]: "gemini-3.1-flash-image",
 }
@@ -43,7 +45,7 @@ export type ReferenceImage = {
   dataUrl: string
 }
 
-export const aspectRatioLabels: Record<AspectRatio, string> = {
+export const aspectRatioLabels: Record<string, string> = {
   auto: "自适应",
   "1:1": "1:1",
   "4:3": "4:3",
@@ -52,11 +54,19 @@ export const aspectRatioLabels: Record<AspectRatio, string> = {
   "9:16": "9:16",
 }
 
-export const resolutionLabels: Record<ImageResolution, string> = {
+export const resolutionLabels: Record<string, string> = {
   "0.5k": "0.5k",
   "1k": "1k",
   "2k": "2k",
   "4k": "4k",
+}
+
+export function formatAspectRatioLabel(value: AspectRatio) {
+  return aspectRatioLabels[value] ?? value
+}
+
+export function formatResolutionLabel(value: ImageResolution) {
+  return resolutionLabels[value] ?? value
 }
 
 export const statusLabels: Record<ImageJobStatus, string> = {

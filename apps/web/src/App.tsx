@@ -26,6 +26,16 @@ import { GlobalToast } from "@/components/global-toast"
 import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
 import {
+  applyHttpPresetToDraft,
+  buildHttpConfigFromDraft,
+  createHttpConfigDraft,
+} from "@/lib/http-config-draft"
+import {
+  defaultImageProviderHttpPreset,
+  type ImageProviderHttpSection,
+  type ImageProviderHttpPreset,
+} from "@/lib/image-provider-presets"
+import {
   type AssistantFormState,
   isImageJobActive,
   type ReferenceImage,
@@ -69,13 +79,13 @@ function readViewFromHash(): View {
 
 const initialImageConfigForm: CreateImageModelConfigInput = {
   name: "",
-  providerType: ImageProviderTypeEnum.OpenAICompatible,
-  deliveryMode: "sync",
+  providerType: ImageProviderTypeEnum.ConfigurableHttp,
+  deliveryMode: defaultImageProviderHttpPreset.deliveryMode,
   baseUrl: "",
-  generationPath: "/v1/images/generations",
-  editPath: "/v1/images/edits",
+  generationPath: "",
+  editPath: "",
   apiKey: "",
-  modelName: "gpt-image-2",
+  modelName: defaultImageProviderHttpPreset.modelName,
   fieldMapping: {},
   fieldOverrides: {
     model: true,
@@ -97,6 +107,7 @@ const initialImageConfigForm: CreateImageModelConfigInput = {
     intervalMs: 5000,
     timeoutMs: 300000,
   },
+  httpConfig: defaultImageProviderHttpPreset.config,
   enabled: true,
 }
 
@@ -114,6 +125,9 @@ function App() {
   const [assistantConfig, setAssistantConfig] =
     useState<AssistantModelConfig | null>(null)
   const [imageConfigForm, setImageConfigForm] = useState(initialImageConfigForm)
+  const [httpConfigDraft, setHttpConfigDraft] = useState(() =>
+    createHttpConfigDraft(defaultImageProviderHttpPreset.config),
+  )
   const [assistantForm, setAssistantForm] = useState(initialAssistantForm)
   const [configFormVisible, setConfigFormVisible] = useState(false)
   const [editingConfigId, setEditingConfigId] = useState<string | null>(null)
@@ -158,6 +172,12 @@ function App() {
     historyJobs.find(isImageJobActive) ??
     null
   const isGenerating = creatingJob || Boolean(activeJob)
+  const httpConfigBuild = useMemo(
+    () =>
+      buildHttpConfigFromDraft(httpConfigDraft, imageConfigForm.deliveryMode),
+    [httpConfigDraft, imageConfigForm.deliveryMode],
+  )
+  const httpConfigError = httpConfigBuild.errors[0] ?? ""
 
   useEffect(() => {
     generationLockedRef.current = isGenerating
@@ -306,6 +326,7 @@ function App() {
 
   function resetImageConfigForm() {
     setImageConfigForm(initialImageConfigForm)
+    setHttpConfigDraft(createHttpConfigDraft(defaultImageProviderHttpPreset.config))
     setEditingConfigId(null)
   }
 
@@ -329,10 +350,23 @@ function App() {
       fieldMapping: config.fieldMapping ?? {},
       fieldOverrides: config.fieldOverrides ?? {},
       pollingConfig: config.pollingConfig ?? initialImageConfigForm.pollingConfig,
+      httpConfig: config.httpConfig ?? initialImageConfigForm.httpConfig,
       enabled: config.enabled,
     })
+    setHttpConfigDraft(
+      createHttpConfigDraft(config.httpConfig ?? defaultImageProviderHttpPreset.config),
+    )
     setEditingConfigId(config.id)
     setConfigFormVisible(true)
+  }
+
+  function handleApplyHttpSectionPreset(
+    section: ImageProviderHttpSection,
+    preset: ImageProviderHttpPreset,
+  ) {
+    setHttpConfigDraft((current) =>
+      applyHttpPresetToDraft(current, section, preset.config),
+    )
   }
 
   function cancelConfigForm() {
@@ -410,12 +444,24 @@ function App() {
   }, [pollImageJob])
 
   async function handleSaveImageConfig() {
+    if (!httpConfigBuild.config) {
+      toast.warning(httpConfigError || "HTTP 模板配置不完整")
+      return
+    }
+
     setLoading(true)
 
     try {
+      // HTTP 模板表单只保存草稿；真正提交给后端前才封装为 httpConfig JSON。
+      const imageConfigInput = {
+        ...imageConfigForm,
+        providerType: ImageProviderTypeEnum.ConfigurableHttp,
+        httpConfig: httpConfigBuild.config,
+      }
+
       if (editingConfigId) {
         const input: UpdateImageModelConfigInput = {
-          ...imageConfigForm,
+          ...imageConfigInput,
         }
         const updated = await api.updateImageModelConfig(editingConfigId, input)
 
@@ -424,7 +470,7 @@ function App() {
         )
         toast.success("生图模型配置已更新")
       } else {
-        const created = await api.createImageModelConfig(imageConfigForm)
+        const created = await api.createImageModelConfig(imageConfigInput)
         setImageConfigs((current) => [created, ...current])
         if (created.enabled) {
           setSelectedConfigId(created.id)
@@ -787,16 +833,20 @@ function App() {
                 assistantForm={assistantForm}
                 configFormVisible={configFormVisible}
                 editingConfigId={editingConfigId}
+                httpConfigDraft={httpConfigDraft}
                 imageConfigForm={imageConfigForm}
                 imageConfigs={imageConfigs}
+                httpConfigError={httpConfigError}
                 loading={loading}
                 updatingAssistantEnabled={updatingAssistantEnabled}
                 updatingConfigEnabledId={updatingConfigEnabledId}
                 onAssistantFormChange={setAssistantForm}
                 onAssistantEnabledChange={handleToggleAssistantEnabled}
+                onApplyHttpSectionPreset={handleApplyHttpSectionPreset}
                 onCancelConfigForm={cancelConfigForm}
                 onDeleteConfig={handleDeleteConfig}
                 onEditConfig={startEditConfig}
+                onHttpConfigDraftChange={setHttpConfigDraft}
                 onImageConfigFormChange={setImageConfigForm}
                 onSaveAssistant={handleSaveAssistant}
                 onSaveImageConfig={handleSaveImageConfig}

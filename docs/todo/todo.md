@@ -2,6 +2,11 @@
 
 ## 待办
 
+- [x] 2026-07-02 重做生图 provider 为 `configurable-http`：生图模型配置改为 HTTP 请求模板 JSON，支持请求头/请求体模板、业务参数 bindings、参考图注入、同步/轮询响应提取、token 消耗落库和预设模板，旧模型配置允许手动重建。
+- [x] 2026-07-02 调整生图 HTTP 模板配置页：移除第三方快捷填充，只保留 OpenAI / Google 官方结构模板，并将编辑区拆成请求头、请求体、返回格式三段。
+- [x] 2026-07-03 调整生图 HTTP 请求体配置为“项目字段参数配置”：`request.body` 以 `prompt/aspectRatio/resolution/quantity/referenceImages/extra` 为第一层 key，前端按配置 options/maxCount 展示生图参数，后端在发送前组装最终请求体并保留旧 bindings 短期兼容。
+- [x] 2026-07-03 将生图 HTTP 模板配置页从三段 JSON textarea 调整为结构化表单草稿，保存前封装为 `httpConfig` JSON，补充 polling 轮询配置表单，并保留 OpenAI / Google 分段模板填充。
+- [x] 2026-07-02 为生图 HTTP 模板、bindings 注入和模板按钮联动补充代码注释，并将同类注释要求写入 `AGENTS.md`。
 - [x] 2026-06-25 重做生图 provider 配置体系：将生图来源收敛为 `openai-compatible` 与 `google-compatible` 两类协议，模型配置支持请求地址、模型名、字段名映射、字段启用规则和 `sync` / `polling` 交付模式；移除每个第三方中转商单独写 provider 方法的模式。
 - [x] 2026-06-25 改造配置页生图模型 Dialog：使用“基础配置 / 参数映射”Tab，基础页维护协议、交付方式、请求地址、模型名、密钥和启用状态，参数映射页维护字段名覆盖、字段启用开关和轮询结果路径配置。
 - [x] 2026-06-25 更新 shared、后端实体和历史记录展示：任务历史继续记录实际协议与模型名，配置接口只返回密钥掩码，支持 AiCodeWith 这类拆成两个模型配置但共用 OpenAI-compatible + polling 交付方式的中转商。

@@ -1,5 +1,15 @@
 # Pitfalls
 
+## 2026-07-02 配置分段模板按钮不要联动请求地址
+
+- 问题：HTTP 模板配置拆成请求头、请求体、返回格式后，用户点击“请求体”的 OpenAI / Google 模板只是想填充 body 结构。如果同时把 preset 中的 endpoint 写回 `request.url`，会覆盖用户为第三方中转商或官方变体手动填好的请求地址。
+- 处理：分段模板按钮只更新对应分段。请求体模板可以同步 body 所需的 bindings/referenceImages/polling 结构，但必须保留当前 `request.url`，请求地址只由请求地址输入框或用户显式编辑控制。
+
+## 2026-07-02 调试日志需求不要扩大成结构重构
+
+- 问题：用户只要求“发送请求前打印完整实际参数”时，如果顺手改 provider 封装、字段映射或请求构建流程，会让小修变成大范围改动，增加回归风险，也会偏离用户当下的真实诉求。
+- 处理：日志类需求优先在最终请求发出前的最小位置补打印；只有当用户明确要求重做核心 provider 配置体系时，才进入跨 shared、api、web 和 docs 的结构性重构。打印请求参数时必须输出完成映射和模板封装后的实际请求，并对 API key、authorization、token、完整 base64 和参考图内容做脱敏或截断。
+
 ## 2026-07-01 Google 模式的 baseUrl 是完整端点，与 OpenAI 语义相反
 
 - 问题：Google(Gemini)兼容协议的模型名嵌在 URL 路径里（形如 `.../models/gemini-3.1-flash-image-preview:generateContent`），不是请求体参数。此前后端用 `baseUrl + {modelName}:generateContent` 强行拼接，导致同一个「请求地址」字段在两种协议下语义相反：OpenAI-compatible 下它是域名（后端再拼 `/v1/images/generations`），Google-compatible 下它必须是完整端点。若前端只用一个统一的 label/placeholder，用户配 Google 时会照着域名示例只填一半，直接 404。

@@ -14,11 +14,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  aspectRatioLabels,
+  formatAspectRatioLabel,
+  formatResolutionLabel,
   formatShortTime,
   getImageJobUrls,
   providerTypeLabels,
-  resolutionLabels,
   statusLabels,
   statusToneClassNames,
 } from "@/lib/image-ui"
@@ -229,11 +229,13 @@ export function HistoryPage({
                   {/* 模型名不再单独展示:配置名已由上方「模型配置」承担,且 Google 模式下模型名为空 */}
                   <HistoryMeta
                     label="尺寸"
-                    value={aspectRatioLabels[selectedHistoryJob.aspectRatio]}
+                    value={formatAspectRatioLabel(
+                      selectedHistoryJob.aspectRatio,
+                    )}
                   />
                   <HistoryMeta
                     label="分辨率"
-                    value={resolutionLabels[selectedHistoryJob.resolution]}
+                    value={formatResolutionLabel(selectedHistoryJob.resolution)}
                   />
                   <HistoryMeta
                     label="数量"

@@ -1,16 +1,14 @@
 import { useState, type ReactNode } from "react"
 import {
-  imageProviderDeliveryModes,
-  imageProviderFieldKeys,
   assistantProviderModes,
-  imageProviderTypes,
-  ImageProviderTypeEnum,
+  imageProviderHttpImageValueTypes,
+  imageProviderHttpContentTypes,
+  imageProviderDeliveryModes,
+  imageProviderReferenceImageModes,
   type AssistantProviderMode,
   type CreateImageModelConfigInput,
-  type ImageProviderDeliveryMode,
-  type ImageProviderFieldKey,
   type ImageModelConfig,
-  type ImageProviderType,
+  type ImageProviderDeliveryMode,
 } from "@ai-image-codexu/shared"
 import { Bot, EyeOff, Layers3, Pencil, Plus, Save, Trash2 } from "lucide-react"
 
@@ -40,19 +38,52 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  createHttpExtraBodyRow,
+  createHttpHeaderRow,
+  createHttpOptionRow,
+  type HttpConfigDraft,
+  type HttpOptionFieldDraft,
+} from "@/lib/http-config-draft"
+import {
+  imageProviderHttpPresets,
+  type ImageProviderHttpPreset,
+  type ImageProviderHttpSection,
+} from "@/lib/image-provider-presets"
 import {
   assistantModeLabels,
   providerDeliveryModeLabels,
-  providerDefaultModelNames,
   providerTypeLabels,
   type AssistantFormState,
 } from "@/lib/image-ui"
 import { cn } from "@/lib/utils"
 
+const referenceImageModeLabels: Record<
+  HttpConfigDraft["body"]["referenceImages"]["mode"],
+  string
+> = {
+  none: "不支持",
+  inlineBase64: "Base64",
+  multipart: "Multipart",
+  urlArray: "公网 URL",
+}
+
+const responseImageTypeLabels: Record<
+  HttpConfigDraft["response"]["imageType"],
+  string
+> = {
+  base64: "Base64",
+  url: "URL",
+  dataUrl: "Data URL",
+}
+
 export function SettingsPage({
   assistantForm,
   configFormVisible,
   editingConfigId,
+  httpConfigDraft,
+  httpConfigError,
   imageConfigForm,
   imageConfigs,
   loading,
@@ -60,9 +91,11 @@ export function SettingsPage({
   updatingConfigEnabledId,
   onAssistantFormChange,
   onAssistantEnabledChange,
+  onApplyHttpSectionPreset,
   onCancelConfigForm,
   onDeleteConfig,
   onEditConfig,
+  onHttpConfigDraftChange,
   onImageConfigFormChange,
   onSaveAssistant,
   onSaveImageConfig,
@@ -72,6 +105,8 @@ export function SettingsPage({
   assistantForm: AssistantFormState
   configFormVisible: boolean
   editingConfigId: string | null
+  httpConfigDraft: HttpConfigDraft
+  httpConfigError: string
   imageConfigForm: CreateImageModelConfigInput
   imageConfigs: ImageModelConfig[]
   loading: boolean
@@ -79,18 +114,21 @@ export function SettingsPage({
   updatingConfigEnabledId: string
   onAssistantFormChange: (value: AssistantFormState) => void
   onAssistantEnabledChange: (enabled: boolean) => void
+  onApplyHttpSectionPreset: (
+    section: ImageProviderHttpSection,
+    preset: ImageProviderHttpPreset,
+  ) => void
   onCancelConfigForm: () => void
   onDeleteConfig: (id: string) => void
   onEditConfig: (config: ImageModelConfig) => void
+  onHttpConfigDraftChange: (value: HttpConfigDraft) => void
   onImageConfigFormChange: (value: CreateImageModelConfigInput) => void
   onSaveAssistant: () => void
   onSaveImageConfig: () => void
   onStartCreateConfig: () => void
   onToggleConfigEnabled: (id: string, enabled: boolean) => void
 }) {
-  const [configFormTab, setConfigFormTab] = useState<"base" | "mapping">(
-    "base",
-  )
+  const [configFormTab, setConfigFormTab] = useState<"base" | "http">("base")
 
   return (
     <div className="motion-stagger grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
@@ -113,6 +151,11 @@ export function SettingsPage({
               {imageConfigs.map((config) => {
                 const switchId = `config-enabled-${config.id}`
                 const isUpdating = updatingConfigEnabledId === config.id
+                const requestUrl =
+                  config.httpConfig?.request.url ||
+                  config.modelName ||
+                  config.baseUrl
+
                 return (
                   <div
                     key={config.id}
@@ -140,9 +183,8 @@ export function SettingsPage({
                             {config.name}
                           </p>
                         </div>
-                        {/* Google 模式无独立模型名,回落展示完整请求地址,避免卡片出现空行 */}
                         <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
-                          {config.modelName || config.baseUrl}
+                          {requestUrl}
                         </p>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
                           {providerTypeLabels[config.providerType]} ·{" "}
@@ -210,7 +252,7 @@ export function SettingsPage({
           }
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>
               {editingConfigId ? "编辑生图模型" : "新增生图模型"}
@@ -220,7 +262,7 @@ export function SettingsPage({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="motion-stagger grid gap-3">
+          <div className="motion-stagger grid max-h-[calc(92vh-7rem)] gap-3 overflow-y-auto pr-1">
             <div className="grid grid-cols-2 gap-2 rounded-lg border border-border/70 bg-background/35 p-1">
               <Button
                 className={cn(
@@ -237,14 +279,14 @@ export function SettingsPage({
               <Button
                 className={cn(
                   "h-9 rounded-md",
-                  configFormTab === "mapping" &&
+                  configFormTab === "http" &&
                     "border-amber-300/30 bg-amber-300/12 text-amber-50",
                 )}
                 type="button"
                 variant="ghost"
-                onClick={() => setConfigFormTab("mapping")}
+                onClick={() => setConfigFormTab("http")}
               >
-                参数映射
+                HTTP 模板
               </Button>
             </div>
 
@@ -255,9 +297,12 @@ export function SettingsPage({
                 onImageConfigFormChange={onImageConfigFormChange}
               />
             ) : (
-              <MappingConfigFields
+              <HttpConfigFields
+                httpConfigDraft={httpConfigDraft}
+                httpConfigError={httpConfigError}
                 imageConfigForm={imageConfigForm}
-                onImageConfigFormChange={onImageConfigFormChange}
+                onApplyHttpSectionPreset={onApplyHttpSectionPreset}
+                onHttpConfigDraftChange={onHttpConfigDraftChange}
               />
             )}
 
@@ -271,7 +316,7 @@ export function SettingsPage({
               </Button>
               <Button
                 className="h-10 bg-primary text-primary-foreground hover:bg-primary/90"
-                disabled={loading}
+                disabled={loading || Boolean(httpConfigError)}
                 onClick={onSaveImageConfig}
               >
                 <Save data-icon="inline-start" />
@@ -282,112 +327,14 @@ export function SettingsPage({
         </DialogContent>
       </Dialog>
 
-      <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 xl:self-start">
-        <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Bot className="size-5 text-amber-200" />
-            辅助模型
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="motion-stagger grid gap-3 pt-1">
-          <Field id="assistant-mode" label="模式">
-            <Select
-              value={assistantForm.mode}
-              onValueChange={(value) =>
-                onAssistantFormChange({
-                  ...assistantForm,
-                  mode: value as AssistantProviderMode,
-                })
-              }
-            >
-              <SelectTrigger id="assistant-mode" className="!h-10 w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {assistantProviderModes.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {assistantModeLabels[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field id="assistant-url" label="请求地址">
-            <Input
-              id="assistant-url"
-              className="h-10 border-border/80 bg-background/55 font-mono text-sm"
-              placeholder="https://third-party.example.com/v1/chat/completions"
-              value={assistantForm.url}
-              onChange={(event) =>
-                onAssistantFormChange({
-                  ...assistantForm,
-                  url: event.target.value,
-                })
-              }
-            />
-          </Field>
-
-          <Field id="assistant-key" label="密钥">
-            <Input
-              id="assistant-key"
-              className="h-10 border-border/80 bg-background/55"
-              type="password"
-              placeholder="留空表示不更新密钥"
-              value={assistantForm.apiKey}
-              onChange={(event) =>
-                onAssistantFormChange({
-                  ...assistantForm,
-                  apiKey: event.target.value,
-                })
-              }
-            />
-          </Field>
-
-          <Field id="assistant-model" label="模型名">
-            <Input
-              id="assistant-model"
-              className="h-10 border-border/80 bg-background/55"
-              placeholder="例如 gpt-4.1-mini 或 claude-sonnet-4"
-              value={assistantForm.modelName}
-              onChange={(event) =>
-                onAssistantFormChange({
-                  ...assistantForm,
-                  modelName: event.target.value,
-                })
-              }
-            />
-          </Field>
-
-          <Field id="assistant-enabled" label="启用辅助模型">
-            <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/55 px-3">
-              <span className="text-sm text-muted-foreground">
-                {assistantForm.enabled ? "已启用" : "已停用"}
-              </span>
-              <Switch
-                id="assistant-enabled"
-                checked={assistantForm.enabled}
-                disabled={loading || updatingAssistantEnabled}
-                onCheckedChange={onAssistantEnabledChange}
-              />
-            </div>
-          </Field>
-
-          <Button
-            className="h-10 bg-amber-300 text-amber-950 hover:bg-amber-200"
-            disabled={loading}
-            onClick={onSaveAssistant}
-          >
-            <Bot data-icon="inline-start" />
-            保存辅助模型
-          </Button>
-
-          <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
-            <EyeOff className="mt-1 size-4 shrink-0 text-amber-200" />
-            <p>前端只展示密钥掩码，不保存或回显原始 API key。</p>
-          </div>
-        </CardContent>
-      </Card>
+      <AssistantConfigCard
+        assistantForm={assistantForm}
+        loading={loading}
+        updatingAssistantEnabled={updatingAssistantEnabled}
+        onAssistantEnabledChange={onAssistantEnabledChange}
+        onAssistantFormChange={onAssistantFormChange}
+        onSaveAssistant={onSaveAssistant}
+      />
     </div>
   )
 }
@@ -402,7 +349,7 @@ function BaseConfigFields({
   onImageConfigFormChange: (value: CreateImageModelConfigInput) => void
 }) {
   return (
-    <>
+    <div className="grid gap-3">
       <div className="grid gap-3 md:grid-cols-2">
         <Field id="config-name" label="配置名称">
           <Input
@@ -417,39 +364,6 @@ function BaseConfigFields({
             }
           />
         </Field>
-        <Field id="provider-type" label="协议类型">
-          <Select
-            value={imageConfigForm.providerType}
-            onValueChange={(value) => {
-              const nextType = value as ImageProviderType
-              // Google 模式模型名在完整请求地址里,不需要单独的模型名;仅 OpenAI 模式回填默认模型名
-              const nextModelName =
-                nextType === ImageProviderTypeEnum.GoogleCompatible
-                  ? ""
-                  : imageConfigForm.modelName ||
-                    providerDefaultModelNames[nextType]
-              onImageConfigFormChange({
-                ...imageConfigForm,
-                providerType: nextType,
-                modelName: nextModelName,
-              })
-            }}
-          >
-            <SelectTrigger id="provider-type" className="!h-10 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {imageProviderTypes.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {providerTypeLabels[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
         <Field id="delivery-mode" label="交付方式">
           <Select
             value={imageConfigForm.deliveryMode}
@@ -472,88 +386,22 @@ function BaseConfigFields({
             </SelectContent>
           </Select>
         </Field>
-        {/* Google 模式下 baseUrl 是含模型名的完整端点,OpenAI 模式下只是域名(后端再拼路径),故 label/placeholder 随协议类型区分 */}
-        <Field
-          id="base-url"
-          label={
-            imageConfigForm.providerType ===
-            ImageProviderTypeEnum.GoogleCompatible
-              ? "完整请求地址"
-              : "请求地址"
-          }
-        >
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field id="model-name" label="模型快照">
           <Input
-            id="base-url"
-            className="h-10 border-border/80 bg-background/55 font-mono text-sm"
-            placeholder={
-              imageConfigForm.providerType ===
-              ImageProviderTypeEnum.GoogleCompatible
-                ? "https://api.apiyi.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
-                : "https://api.example.com"
-            }
-            value={imageConfigForm.baseUrl}
+            id="model-name"
+            className="h-10 border-border/80 bg-background/55"
+            value={imageConfigForm.modelName ?? ""}
             onChange={(event) =>
               onImageConfigFormChange({
                 ...imageConfigForm,
-                baseUrl: event.target.value,
+                modelName: event.target.value,
               })
             }
           />
         </Field>
-      </div>
-
-      {imageConfigForm.providerType === ImageProviderTypeEnum.OpenAICompatible ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field id="generation-path" label="文生图路径">
-            <Input
-              id="generation-path"
-              className="h-10 border-border/80 bg-background/55 font-mono text-sm"
-              value={imageConfigForm.generationPath ?? ""}
-              onChange={(event) =>
-                onImageConfigFormChange({
-                  ...imageConfigForm,
-                  generationPath: event.target.value,
-                })
-              }
-            />
-          </Field>
-          <Field id="edit-path" label="图生图路径">
-            <Input
-              id="edit-path"
-              className="h-10 border-border/80 bg-background/55 font-mono text-sm"
-              value={imageConfigForm.editPath ?? ""}
-              onChange={(event) =>
-                onImageConfigFormChange({
-                  ...imageConfigForm,
-                  editPath: event.target.value,
-                })
-              }
-            />
-          </Field>
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        {/* Google 模式的模型名已在完整请求地址里,只有 OpenAI 模式才需要单独填模型名 */}
-        {imageConfigForm.providerType ===
-        ImageProviderTypeEnum.OpenAICompatible ? (
-          <Field id="model-name" label="模型名称">
-            <Input
-              id="model-name"
-              className="h-10 border-border/80 bg-background/55"
-              placeholder={
-                providerDefaultModelNames[imageConfigForm.providerType]
-              }
-              value={imageConfigForm.modelName ?? ""}
-              onChange={(event) =>
-                onImageConfigFormChange({
-                  ...imageConfigForm,
-                  modelName: event.target.value,
-                })
-              }
-            />
-          </Field>
-        ) : null}
         <Field id="api-key" label="密钥">
           <Input
             id="api-key"
@@ -590,172 +438,1083 @@ function BaseConfigFields({
           </div>
         </Field>
       </div>
-    </>
+    </div>
   )
 }
 
-function MappingConfigFields({
+function HttpConfigFields({
+  httpConfigDraft,
+  httpConfigError,
   imageConfigForm,
-  onImageConfigFormChange,
+  onApplyHttpSectionPreset,
+  onHttpConfigDraftChange,
 }: {
+  httpConfigDraft: HttpConfigDraft
+  httpConfigError: string
   imageConfigForm: CreateImageModelConfigInput
-  onImageConfigFormChange: (value: CreateImageModelConfigInput) => void
+  onApplyHttpSectionPreset: (
+    section: ImageProviderHttpSection,
+    preset: ImageProviderHttpPreset,
+  ) => void
+  onHttpConfigDraftChange: (value: HttpConfigDraft) => void
 }) {
-  const mapping = imageConfigForm.fieldMapping ?? {}
-  const overrides = imageConfigForm.fieldOverrides ?? {}
-  const polling = imageConfigForm.pollingConfig ?? {}
-
-  function updateMapping(field: ImageProviderFieldKey, value: string) {
-    onImageConfigFormChange({
-      ...imageConfigForm,
-      fieldMapping: {
-        ...mapping,
-        [field]: value,
+  function updateRequest(value: Partial<HttpConfigDraft["request"]>) {
+    onHttpConfigDraftChange({
+      ...httpConfigDraft,
+      request: {
+        ...httpConfigDraft.request,
+        ...value,
       },
     })
   }
 
-  function updateOverride(field: ImageProviderFieldKey, enabled: boolean) {
-    onImageConfigFormChange({
-      ...imageConfigForm,
-      fieldOverrides: {
-        ...overrides,
-        [field]: enabled,
-      },
+  function updateBody(value: HttpConfigDraft["body"]) {
+    onHttpConfigDraftChange({
+      ...httpConfigDraft,
+      body: value,
     })
   }
 
-  function updatePolling(value: typeof polling) {
-    onImageConfigFormChange({
-      ...imageConfigForm,
-      pollingConfig: value,
+  function updateHeaders(value: HttpConfigDraft["headers"]) {
+    onHttpConfigDraftChange({
+      ...httpConfigDraft,
+      headers: value,
+    })
+  }
+
+  function updateResponse(value: HttpConfigDraft["response"]) {
+    onHttpConfigDraftChange({
+      ...httpConfigDraft,
+      response: value,
+    })
+  }
+
+  function updatePolling(value: HttpConfigDraft["polling"]) {
+    onHttpConfigDraftChange({
+      ...httpConfigDraft,
+      polling: value,
     })
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="grid gap-2">
-        {imageProviderFieldKeys.map((field) => (
-          <div
-            key={field}
-            className="grid gap-2 rounded-lg border border-border/70 bg-background/35 p-2 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-center"
+    <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_150px]">
+        <Field id="http-request-url" label="请求地址">
+          <Input
+            id="http-request-url"
+            className="h-10 border-border/80 bg-background/55 font-mono text-sm"
+            value={httpConfigDraft.request.url}
+            onChange={(event) => updateRequest({ url: event.target.value })}
+          />
+        </Field>
+        <Field id="http-request-method" label="方法">
+          <Select
+            value={httpConfigDraft.request.method}
+            onValueChange={(value) =>
+              updateRequest({
+                method: value as HttpConfigDraft["request"]["method"],
+              })
+            }
           >
-            <Label className="text-sm text-foreground">{field}</Label>
-            <Input
-              className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-              placeholder={defaultFieldName(field)}
-              value={mapping[field] ?? ""}
-              onChange={(event) => updateMapping(field, event.target.value)}
-            />
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/45 px-2 py-1 md:min-w-24">
-              <span className="text-xs text-muted-foreground">发送</span>
-              <Switch
-                size="sm"
-                checked={overrides[field] ?? true}
-                onCheckedChange={(enabled) => updateOverride(field, enabled)}
-              />
-            </div>
-          </div>
-        ))}
+            <SelectTrigger id="http-request-method" className="!h-10 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["POST", "GET"].map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id="http-content-type" label="Content-Type">
+          <Select
+            value={httpConfigDraft.request.contentType}
+            onValueChange={(value) =>
+              updateRequest({
+                contentType: value as HttpConfigDraft["request"]["contentType"],
+              })
+            }
+          >
+            <SelectTrigger id="http-content-type" className="!h-10 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {imageProviderHttpContentTypes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
       </div>
 
+      <HttpFormSection
+        section="headers"
+        title="请求头"
+        onApplyHttpSectionPreset={onApplyHttpSectionPreset}
+      >
+        <HttpHeadersForm
+          headers={httpConfigDraft.headers}
+          onChange={updateHeaders}
+        />
+      </HttpFormSection>
+
+      <HttpFormSection
+        section="body"
+        title="请求体"
+        onApplyHttpSectionPreset={onApplyHttpSectionPreset}
+      >
+        <HttpBodyForm body={httpConfigDraft.body} onChange={updateBody} />
+      </HttpFormSection>
+
+      <HttpFormSection
+        section="response"
+        title="返回格式"
+        onApplyHttpSectionPreset={onApplyHttpSectionPreset}
+      >
+        <HttpResponseForm
+          response={httpConfigDraft.response}
+          onChange={updateResponse}
+        />
+      </HttpFormSection>
+
       {imageConfigForm.deliveryMode === "polling" ? (
-        <div className="grid gap-3 rounded-lg border border-amber-300/20 bg-amber-300/8 p-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field id="poll-task-id" label="任务 ID 字段">
-              <Input
-                id="poll-task-id"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.taskIdPath ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    taskIdPath: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field id="poll-path" label="轮询路径模板">
-              <Input
-                id="poll-path"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.pollPathTemplate ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    pollPathTemplate: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field id="poll-status" label="状态字段">
-              <Input
-                id="poll-status"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.statusPath ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    statusPath: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field id="poll-result" label="结果 URL 字段">
-              <Input
-                id="poll-result"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.resultUrlsPath ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    resultUrlsPath: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field id="poll-success" label="成功状态值">
-              <Input
-                id="poll-success"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.successStatusValue ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    successStatusValue: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field id="poll-failure" label="失败状态值">
-              <Input
-                id="poll-failure"
-                className="h-9 border-border/80 bg-background/55 font-mono text-sm"
-                value={polling.failureStatusValue ?? ""}
-                onChange={(event) =>
-                  updatePolling({
-                    ...polling,
-                    failureStatusValue: event.target.value,
-                  })
-                }
-              />
-            </Field>
-          </div>
-        </div>
+        <HttpPollingForm
+          polling={httpConfigDraft.polling}
+          onChange={updatePolling}
+        />
+      ) : null}
+
+      {httpConfigError ? (
+        <p className="rounded-md border border-red-300/35 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+          {httpConfigError}
+        </p>
       ) : null}
     </div>
   )
 }
 
-function defaultFieldName(field: ImageProviderFieldKey) {
-  switch (field) {
-    case "quantity":
-      return "n"
-    case "responseFormat":
-      return "response_format"
-    default:
-      return field
+function HttpFormSection({
+  children,
+  section,
+  title,
+  onApplyHttpSectionPreset,
+}: {
+  children: ReactNode
+  section: ImageProviderHttpSection
+  title: string
+  onApplyHttpSectionPreset: (
+    section: ImageProviderHttpSection,
+    preset: ImageProviderHttpPreset,
+  ) => void
+}) {
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/70 bg-background/30 p-3">
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        <div className="flex gap-2">
+          {imageProviderHttpPresets.map((preset) => (
+            <Button
+              key={preset.id}
+              className="h-8 px-3 text-xs"
+              type="button"
+              variant="outline"
+              onClick={() => onApplyHttpSectionPreset(section, preset)}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function HttpHeadersForm({
+  headers,
+  onChange,
+}: {
+  headers: HttpConfigDraft["headers"]
+  onChange: (value: HttpConfigDraft["headers"]) => void
+}) {
+  function updateRow(
+    id: string,
+    value: Partial<HttpConfigDraft["headers"][number]>,
+  ) {
+    onChange(headers.map((row) => (row.id === id ? { ...row, ...value } : row)))
   }
+
+  function removeRow(id: string) {
+    const nextRows = headers.filter((row) => row.id !== id)
+    onChange(nextRows.length > 0 ? nextRows : [createHttpHeaderRow()])
+  }
+
+  return (
+    <div className="grid gap-2">
+      {headers.map((row) => (
+        <div
+          key={row.id}
+          className="grid gap-2 md:grid-cols-[minmax(150px,0.8fr)_minmax(0,1.4fr)_36px]"
+        >
+          <Input
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="Authorization"
+            value={row.name}
+            onChange={(event) => updateRow(row.id, { name: event.target.value })}
+          />
+          <Input
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="Bearer {{apiKey}}"
+            value={row.value}
+            onChange={(event) => updateRow(row.id, { value: event.target.value })}
+          />
+          <Button
+            className="size-9"
+            type="button"
+            variant="destructive"
+            size="icon-sm"
+            onClick={() => removeRow(row.id)}
+            aria-label="删除请求头"
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      ))}
+      <Button
+        className="h-8 justify-self-start"
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onChange([...headers, createHttpHeaderRow()])}
+      >
+        <Plus data-icon="inline-start" />
+        添加请求头
+      </Button>
+    </div>
+  )
+}
+
+function HttpBodyForm({
+  body,
+  onChange,
+}: {
+  body: HttpConfigDraft["body"]
+  onChange: (value: HttpConfigDraft["body"]) => void
+}) {
+  function updateBody(value: Partial<HttpConfigDraft["body"]>) {
+    onChange({
+      ...body,
+      ...value,
+    })
+  }
+
+  return (
+    <div className="grid gap-3">
+      <Field id="http-prompt-path" label="提示词路径">
+        <Input
+          id="http-prompt-path"
+          className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+          placeholder="contents[0].parts[0].text"
+          value={body.promptPath}
+          onChange={(event) => updateBody({ promptPath: event.target.value })}
+        />
+      </Field>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <HttpOptionFieldForm
+          title="尺寸比例"
+          pathInputId="http-aspect-ratio-path"
+          field={body.aspectRatio}
+          onChange={(aspectRatio) => updateBody({ aspectRatio })}
+        />
+        <HttpOptionFieldForm
+          title="分辨率"
+          pathInputId="http-resolution-path"
+          field={body.resolution}
+          onChange={(resolution) => updateBody({ resolution })}
+        />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <HttpQuantityForm
+          quantity={body.quantity}
+          onChange={(quantity) => updateBody({ quantity })}
+        />
+        <HttpReferenceImagesForm
+          referenceImages={body.referenceImages}
+          onChange={(referenceImages) => updateBody({ referenceImages })}
+        />
+      </div>
+
+      <HttpExtraBodyForm
+        extra={body.extra}
+        onChange={(extra) => updateBody({ extra })}
+      />
+    </div>
+  )
+}
+
+function HttpOptionFieldForm({
+  field,
+  pathInputId,
+  title,
+  onChange,
+}: {
+  field: HttpOptionFieldDraft
+  pathInputId: string
+  title: string
+  onChange: (value: HttpOptionFieldDraft) => void
+}) {
+  function updateOption(
+    id: string,
+    value: Partial<HttpOptionFieldDraft["options"][number]>,
+  ) {
+    onChange({
+      ...field,
+      options: field.options.map((option) =>
+        option.id === id ? { ...option, ...value } : option,
+      ),
+    })
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <Label htmlFor={pathInputId} className="text-sm text-foreground">
+          {title}
+        </Label>
+        <Button
+          className="h-8 px-2"
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            onChange({
+              ...field,
+              options: [...field.options, createHttpOptionRow()],
+            })
+          }
+        >
+          <Plus data-icon="inline-start" />
+          选项
+        </Button>
+      </div>
+      <Input
+        id={pathInputId}
+        className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+        placeholder="generationConfig.imageConfig.aspectRatio"
+        value={field.path}
+        onChange={(event) => onChange({ ...field, path: event.target.value })}
+      />
+      <div className="grid gap-2">
+        {field.options.map((option) => (
+          <div
+            key={option.id}
+            className="grid gap-2 md:grid-cols-[minmax(92px,0.7fr)_minmax(0,1fr)_36px]"
+          >
+            <Input
+              className="h-9 border-border/80 bg-background/55 text-sm"
+              placeholder="显示值"
+              value={option.label}
+              onChange={(event) =>
+                updateOption(option.id, { label: event.target.value })
+              }
+            />
+            <Input
+              className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+              placeholder="发送值"
+              value={option.valueText}
+              onChange={(event) =>
+                updateOption(option.id, { valueText: event.target.value })
+              }
+            />
+            <Button
+              className="size-9"
+              type="button"
+              variant="destructive"
+              size="icon-sm"
+              onClick={() =>
+                onChange({
+                  ...field,
+                  options: field.options.filter((item) => item.id !== option.id),
+                })
+              }
+              aria-label={`删除${title}选项`}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HttpQuantityForm({
+  quantity,
+  onChange,
+}: {
+  quantity: HttpConfigDraft["body"]["quantity"]
+  onChange: (value: HttpConfigDraft["body"]["quantity"]) => void
+}) {
+  function updateQuantity(value: Partial<HttpConfigDraft["body"]["quantity"]>) {
+    onChange({
+      ...quantity,
+      ...value,
+    })
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3">
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <Label htmlFor="http-quantity-path" className="text-sm text-foreground">
+          生成数量
+        </Label>
+        <Switch
+          checked={quantity.enabled}
+          onCheckedChange={(enabled) => updateQuantity({ enabled })}
+          aria-label="启用数量参数"
+        />
+      </div>
+      <Input
+        id="http-quantity-path"
+        className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+        placeholder="n"
+        value={quantity.path}
+        onChange={(event) => updateQuantity({ path: event.target.value })}
+      />
+      <div className="grid grid-cols-3 gap-2">
+        <Field id="http-quantity-min" label="下限">
+          <Input
+            id="http-quantity-min"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={1}
+            max={16}
+            value={quantity.min}
+            onChange={(event) => updateQuantity({ min: event.target.value })}
+          />
+        </Field>
+        <Field id="http-quantity-max" label="上限">
+          <Input
+            id="http-quantity-max"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={1}
+            max={16}
+            value={quantity.max}
+            onChange={(event) => updateQuantity({ max: event.target.value })}
+          />
+        </Field>
+        <Field id="http-quantity-default" label="默认">
+          <Input
+            id="http-quantity-default"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={1}
+            max={16}
+            value={quantity.defaultValue}
+            onChange={(event) =>
+              updateQuantity({ defaultValue: event.target.value })
+            }
+          />
+        </Field>
+      </div>
+    </div>
+  )
+}
+
+function HttpReferenceImagesForm({
+  referenceImages,
+  onChange,
+}: {
+  referenceImages: HttpConfigDraft["body"]["referenceImages"]
+  onChange: (value: HttpConfigDraft["body"]["referenceImages"]) => void
+}) {
+  function updateReferenceImages(
+    value: Partial<HttpConfigDraft["body"]["referenceImages"]>,
+  ) {
+    onChange({
+      ...referenceImages,
+      ...value,
+    })
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3">
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_96px]">
+        <Field id="http-reference-mode" label="参考图">
+          <Select
+            value={referenceImages.mode}
+            onValueChange={(value) =>
+              updateReferenceImages({
+                mode: value as HttpConfigDraft["body"]["referenceImages"]["mode"],
+              })
+            }
+          >
+            <SelectTrigger id="http-reference-mode" className="!h-9 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {imageProviderReferenceImageModes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {referenceImageModeLabels[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id="http-reference-max" label="上限">
+          <Input
+            id="http-reference-max"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={0}
+            max={16}
+            value={referenceImages.maxCount}
+            onChange={(event) =>
+              updateReferenceImages({ maxCount: event.target.value })
+            }
+          />
+        </Field>
+      </div>
+
+      {referenceImages.mode === "inlineBase64" ||
+      referenceImages.mode === "urlArray" ? (
+        <Field id="http-reference-path" label="写入路径">
+          <Input
+            id="http-reference-path"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="contents[0].parts[]"
+            value={referenceImages.path}
+            onChange={(event) =>
+              updateReferenceImages({ path: event.target.value })
+            }
+          />
+        </Field>
+      ) : null}
+
+      {referenceImages.mode === "multipart" ? (
+        <Field id="http-reference-field" label="文件字段名">
+          <Input
+            id="http-reference-field"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="image"
+            value={referenceImages.fieldName}
+            onChange={(event) =>
+              updateReferenceImages({ fieldName: event.target.value })
+            }
+          />
+        </Field>
+      ) : null}
+
+      {referenceImages.mode === "inlineBase64" ? (
+        <Field id="http-reference-template" label="参考图模板">
+          <Textarea
+            id="http-reference-template"
+            className="min-h-[108px] resize-y border-border/80 bg-background/55 font-mono text-xs leading-5"
+            spellCheck={false}
+            value={referenceImages.templateText}
+            onChange={(event) =>
+              updateReferenceImages({ templateText: event.target.value })
+            }
+          />
+        </Field>
+      ) : null}
+    </div>
+  )
+}
+
+function HttpExtraBodyForm({
+  extra,
+  onChange,
+}: {
+  extra: HttpConfigDraft["body"]["extra"]
+  onChange: (value: HttpConfigDraft["body"]["extra"]) => void
+}) {
+  function updateRow(
+    id: string,
+    value: Partial<HttpConfigDraft["body"]["extra"][number]>,
+  ) {
+    onChange(extra.map((row) => (row.id === id ? { ...row, ...value } : row)))
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <h4 className="text-sm font-medium text-foreground">额外参数</h4>
+        <Button
+          className="h-8 px-2"
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onChange([...extra, createHttpExtraBodyRow()])}
+        >
+          <Plus data-icon="inline-start" />
+          参数
+        </Button>
+      </div>
+      {extra.map((row) => (
+        <div
+          key={row.id}
+          className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_36px]"
+        >
+          <Input
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="generationConfig.responseModalities"
+            value={row.path}
+            onChange={(event) => updateRow(row.id, { path: event.target.value })}
+          />
+          <Input
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder='["IMAGE"]'
+            value={row.valueText}
+            onChange={(event) =>
+              updateRow(row.id, { valueText: event.target.value })
+            }
+          />
+          <Button
+            className="size-9"
+            type="button"
+            variant="destructive"
+            size="icon-sm"
+            onClick={() => onChange(extra.filter((item) => item.id !== row.id))}
+            aria-label="删除额外参数"
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function HttpResponseForm({
+  response,
+  onChange,
+}: {
+  response: HttpConfigDraft["response"]
+  onChange: (value: HttpConfigDraft["response"]) => void
+}) {
+  function updateResponse(value: Partial<HttpConfigDraft["response"]>) {
+    onChange({
+      ...response,
+      ...value,
+    })
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+        <Field id="http-response-type" label="图片类型">
+          <Select
+            value={response.imageType}
+            onValueChange={(value) =>
+              updateResponse({
+                imageType: value as HttpConfigDraft["response"]["imageType"],
+              })
+            }
+          >
+            <SelectTrigger id="http-response-type" className="!h-9 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {imageProviderHttpImageValueTypes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {responseImageTypeLabels[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        {response.imageType === "url" ? (
+          <Field id="http-response-url-path" label="URL 路径">
+            <Input
+              id="http-response-url-path"
+              className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+              placeholder="data[].url"
+              value={response.urlPath}
+              onChange={(event) =>
+                updateResponse({ urlPath: event.target.value })
+              }
+            />
+          </Field>
+        ) : (
+          <Field id="http-response-data-path" label="数据路径">
+            <Input
+              id="http-response-data-path"
+              className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+              placeholder="candidates[].content.parts[].inlineData.data"
+              value={response.dataPath}
+              onChange={(event) =>
+                updateResponse({ dataPath: event.target.value })
+              }
+            />
+          </Field>
+        )}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Field id="http-response-mime-path" label="MIME 路径">
+          <Input
+            id="http-response-mime-path"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="inlineData.mimeType"
+            value={response.mimeTypePath}
+            onChange={(event) =>
+              updateResponse({ mimeTypePath: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-response-mime" label="固定 MIME">
+          <Input
+            id="http-response-mime"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="image/png"
+            value={response.mimeType}
+            onChange={(event) => updateResponse({ mimeType: event.target.value })}
+          />
+        </Field>
+        <Field id="http-response-token-path" label="Token 路径">
+          <Input
+            id="http-response-token-path"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="usageMetadata.totalTokenCount"
+            value={response.totalTokensPath}
+            onChange={(event) =>
+              updateResponse({ totalTokensPath: event.target.value })
+            }
+          />
+        </Field>
+      </div>
+    </div>
+  )
+}
+
+function HttpPollingForm({
+  polling,
+  onChange,
+}: {
+  polling: HttpConfigDraft["polling"]
+  onChange: (value: HttpConfigDraft["polling"]) => void
+}) {
+  function updatePolling(value: Partial<HttpConfigDraft["polling"]>) {
+    onChange({
+      ...polling,
+      ...value,
+    })
+  }
+
+  function updateRequest(value: Partial<HttpConfigDraft["polling"]["request"]>) {
+    updatePolling({
+      request: {
+        ...polling.request,
+        ...value,
+      },
+    })
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border/70 bg-background/30 p-3">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-foreground">轮询配置</h3>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_150px]">
+        <Field id="http-polling-url" label="轮询地址">
+          <Input
+            id="http-polling-url"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="https://api.example.com/v1/tasks/{{taskId}}"
+            value={polling.request.url}
+            onChange={(event) => updateRequest({ url: event.target.value })}
+          />
+        </Field>
+        <Field id="http-polling-method" label="方法">
+          <Select
+            value={polling.request.method}
+            onValueChange={(value) =>
+              updateRequest({
+                method: value as HttpConfigDraft["polling"]["request"]["method"],
+              })
+            }
+          >
+            <SelectTrigger id="http-polling-method" className="!h-9 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["GET", "POST"].map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id="http-polling-content-type" label="Content-Type">
+          <Select
+            value={polling.request.contentType}
+            onValueChange={(value) =>
+              updateRequest({
+                contentType:
+                  value as HttpConfigDraft["polling"]["request"]["contentType"],
+              })
+            }
+          >
+            <SelectTrigger
+              id="http-polling-content-type"
+              className="!h-9 w-full"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {imageProviderHttpContentTypes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3">
+        <h4 className="text-sm font-medium text-foreground">轮询请求头</h4>
+        <HttpHeadersForm
+          headers={polling.headers}
+          onChange={(headers) => updatePolling({ headers })}
+        />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Field id="http-polling-task-id" label="任务 ID 路径">
+          <Input
+            id="http-polling-task-id"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="id"
+            value={polling.taskIdPath}
+            onChange={(event) =>
+              updatePolling({ taskIdPath: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-polling-status" label="状态路径">
+          <Input
+            id="http-polling-status"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="status"
+            value={polling.statusPath}
+            onChange={(event) =>
+              updatePolling({ statusPath: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-polling-success" label="成功值">
+          <Input
+            id="http-polling-success"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="completed"
+            value={polling.successValue}
+            onChange={(event) =>
+              updatePolling({ successValue: event.target.value })
+            }
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Field id="http-polling-failure" label="失败值">
+          <Input
+            id="http-polling-failure"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="failed"
+            value={polling.failureValue}
+            onChange={(event) =>
+              updatePolling({ failureValue: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-polling-interval" label="间隔 ms">
+          <Input
+            id="http-polling-interval"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={1000}
+            max={60000}
+            value={polling.intervalMs}
+            onChange={(event) =>
+              updatePolling({ intervalMs: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-polling-timeout" label="超时 ms">
+          <Input
+            id="http-polling-timeout"
+            className="h-9 border-border/80 bg-background/55"
+            type="number"
+            min={10000}
+            max={600000}
+            value={polling.timeoutMs}
+            onChange={(event) =>
+              updatePolling({ timeoutMs: event.target.value })
+            }
+          />
+        </Field>
+      </div>
+
+      <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/35 px-3">
+        <Label
+          htmlFor="http-polling-custom-response"
+          className="text-sm text-foreground"
+        >
+          独立返回格式
+        </Label>
+        <Switch
+          id="http-polling-custom-response"
+          checked={polling.useCustomResponse}
+          onCheckedChange={(useCustomResponse) =>
+            updatePolling({ useCustomResponse })
+          }
+        />
+      </div>
+
+      {polling.useCustomResponse ? (
+        <HttpResponseForm
+          response={polling.response}
+          onChange={(response) => updatePolling({ response })}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function AssistantConfigCard({
+  assistantForm,
+  loading,
+  updatingAssistantEnabled,
+  onAssistantEnabledChange,
+  onAssistantFormChange,
+  onSaveAssistant,
+}: {
+  assistantForm: AssistantFormState
+  loading: boolean
+  updatingAssistantEnabled: boolean
+  onAssistantEnabledChange: (enabled: boolean) => void
+  onAssistantFormChange: (value: AssistantFormState) => void
+  onSaveAssistant: () => void
+}) {
+  return (
+    <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 xl:self-start">
+      <CardHeader className="border-b border-border/70 pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Bot className="size-5 text-amber-200" />
+          辅助模型
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="motion-stagger grid gap-3 pt-1">
+        <Field id="assistant-mode" label="模式">
+          <Select
+            value={assistantForm.mode}
+            onValueChange={(value) =>
+              onAssistantFormChange({
+                ...assistantForm,
+                mode: value as AssistantProviderMode,
+              })
+            }
+          >
+            <SelectTrigger id="assistant-mode" className="!h-10 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {assistantProviderModes.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {assistantModeLabels[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field id="assistant-url" label="请求地址">
+          <Input
+            id="assistant-url"
+            className="h-10 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="https://third-party.example.com/v1/chat/completions"
+            value={assistantForm.url}
+            onChange={(event) =>
+              onAssistantFormChange({
+                ...assistantForm,
+                url: event.target.value,
+              })
+            }
+          />
+        </Field>
+
+        <Field id="assistant-key" label="密钥">
+          <Input
+            id="assistant-key"
+            className="h-10 border-border/80 bg-background/55"
+            type="password"
+            placeholder="留空表示不更新"
+            value={assistantForm.apiKey}
+            onChange={(event) =>
+              onAssistantFormChange({
+                ...assistantForm,
+                apiKey: event.target.value,
+              })
+            }
+          />
+        </Field>
+
+        <Field id="assistant-model" label="模型名">
+          <Input
+            id="assistant-model"
+            className="h-10 border-border/80 bg-background/55"
+            placeholder="gpt-4.1-mini"
+            value={assistantForm.modelName}
+            onChange={(event) =>
+              onAssistantFormChange({
+                ...assistantForm,
+                modelName: event.target.value,
+              })
+            }
+          />
+        </Field>
+
+        <Field id="assistant-enabled" label="启用辅助模型">
+          <div className="flex h-10 items-center justify-between gap-4 rounded-lg border border-border/70 bg-background/55 px-3">
+            <span className="text-sm text-muted-foreground">
+              {assistantForm.enabled ? "已启用" : "已停用"}
+            </span>
+            <Switch
+              id="assistant-enabled"
+              checked={assistantForm.enabled}
+              disabled={loading || updatingAssistantEnabled}
+              onCheckedChange={onAssistantEnabledChange}
+            />
+          </div>
+        </Field>
+
+        <Button
+          className="h-10 bg-amber-300 text-amber-950 hover:bg-amber-200"
+          disabled={loading}
+          onClick={onSaveAssistant}
+        >
+          <Bot data-icon="inline-start" />
+          保存辅助模型
+        </Button>
+
+        <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
+          <EyeOff className="mt-1 size-4 shrink-0 text-amber-200" />
+          <p>前端只展示密钥掩码，不保存或回显原始 API key。</p>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 function Field({
@@ -769,22 +1528,10 @@ function Field({
 }) {
   return (
     <div className="grid gap-2">
-      <FieldLabel id={id}>{label}</FieldLabel>
+      <Label htmlFor={id} className="text-sm text-foreground">
+        {label}
+      </Label>
       {children}
     </div>
-  )
-}
-
-function FieldLabel({
-  children,
-  id,
-}: {
-  children: ReactNode
-  id: string
-}) {
-  return (
-    <Label htmlFor={id} className="text-sm text-foreground">
-      {children}
-    </Label>
   )
 }
