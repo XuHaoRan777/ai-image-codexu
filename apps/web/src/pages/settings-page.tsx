@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import {
+  type AiImageModelConfigRequest,
   assistantProviderModes,
   imageProviderHttpImageValueTypes,
   imageProviderHttpContentTypes,
@@ -79,8 +80,10 @@ const responseImageTypeLabels: Record<
 }
 
 export function SettingsPage({
+  aiImageConfigForm,
   assistantForm,
   configFormVisible,
+  creatingAiConfig,
   editingConfigId,
   httpConfigDraft,
   httpConfigError,
@@ -93,17 +96,21 @@ export function SettingsPage({
   onAssistantEnabledChange,
   onApplyHttpSectionPreset,
   onCancelConfigForm,
+  onCreateImageConfigWithAi,
   onDeleteConfig,
   onEditConfig,
   onHttpConfigDraftChange,
+  onAiImageConfigFormChange,
   onImageConfigFormChange,
   onSaveAssistant,
   onSaveImageConfig,
   onStartCreateConfig,
   onToggleConfigEnabled,
 }: {
+  aiImageConfigForm: AiImageModelConfigRequest
   assistantForm: AssistantFormState
   configFormVisible: boolean
+  creatingAiConfig: boolean
   editingConfigId: string | null
   httpConfigDraft: HttpConfigDraft
   httpConfigError: string
@@ -119,16 +126,21 @@ export function SettingsPage({
     preset: ImageProviderHttpPreset,
   ) => void
   onCancelConfigForm: () => void
+  onCreateImageConfigWithAi: () => void
   onDeleteConfig: (id: string) => void
   onEditConfig: (config: ImageModelConfig) => void
   onHttpConfigDraftChange: (value: HttpConfigDraft) => void
+  onAiImageConfigFormChange: (value: AiImageModelConfigRequest) => void
   onImageConfigFormChange: (value: CreateImageModelConfigInput) => void
   onSaveAssistant: () => void
   onSaveImageConfig: () => void
   onStartCreateConfig: () => void
   onToggleConfigEnabled: (id: string, enabled: boolean) => void
 }) {
-  const [configFormTab, setConfigFormTab] = useState<"base" | "http">("base")
+  const [configFormTab, setConfigFormTab] =
+    useState<"base" | "http" | "ai">("base")
+  const visibleConfigFormTab =
+    editingConfigId && configFormTab === "ai" ? "base" : configFormTab
 
   return (
     <div className="motion-stagger grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
@@ -263,11 +275,11 @@ export function SettingsPage({
           </DialogHeader>
 
           <div className="motion-stagger grid max-h-[calc(92vh-7rem)] gap-3 overflow-y-auto pr-1">
-            <div className="grid grid-cols-2 gap-2 rounded-lg border border-border/70 bg-background/35 p-1">
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/70 bg-background/35 p-1">
               <Button
                 className={cn(
                   "h-9 rounded-md",
-                  configFormTab === "base" &&
+                  visibleConfigFormTab === "base" &&
                     "border-cyan-300/30 bg-cyan-300/12 text-cyan-50",
                 )}
                 type="button"
@@ -279,7 +291,7 @@ export function SettingsPage({
               <Button
                 className={cn(
                   "h-9 rounded-md",
-                  configFormTab === "http" &&
+                  visibleConfigFormTab === "http" &&
                     "border-amber-300/30 bg-amber-300/12 text-amber-50",
                 )}
                 type="button"
@@ -288,21 +300,39 @@ export function SettingsPage({
               >
                 HTTP 模板
               </Button>
+              <Button
+                className={cn(
+                  "h-9 rounded-md",
+                  visibleConfigFormTab === "ai" &&
+                    "border-emerald-300/30 bg-emerald-300/12 text-emerald-50",
+                )}
+                type="button"
+                variant="ghost"
+                disabled={Boolean(editingConfigId)}
+                onClick={() => setConfigFormTab("ai")}
+              >
+                AI 配置
+              </Button>
             </div>
 
-            {configFormTab === "base" ? (
+            {visibleConfigFormTab === "base" ? (
               <BaseConfigFields
                 editingConfigId={editingConfigId}
                 imageConfigForm={imageConfigForm}
                 onImageConfigFormChange={onImageConfigFormChange}
               />
-            ) : (
+            ) : visibleConfigFormTab === "http" ? (
               <HttpConfigFields
                 httpConfigDraft={httpConfigDraft}
                 httpConfigError={httpConfigError}
                 imageConfigForm={imageConfigForm}
                 onApplyHttpSectionPreset={onApplyHttpSectionPreset}
                 onHttpConfigDraftChange={onHttpConfigDraftChange}
+              />
+            ) : (
+              <AiConfigFields
+                aiImageConfigForm={aiImageConfigForm}
+                onAiImageConfigFormChange={onAiImageConfigFormChange}
               />
             )}
 
@@ -314,14 +344,25 @@ export function SettingsPage({
               >
                 取消
               </Button>
-              <Button
-                className="h-10 bg-primary text-primary-foreground hover:bg-primary/90"
-                disabled={loading || Boolean(httpConfigError)}
-                onClick={onSaveImageConfig}
-              >
-                <Save data-icon="inline-start" />
-                {editingConfigId ? "保存修改" : "保存配置"}
-              </Button>
+              {visibleConfigFormTab === "ai" ? (
+                <Button
+                  className="h-10 bg-emerald-300 text-emerald-950 hover:bg-emerald-200"
+                  disabled={loading || creatingAiConfig}
+                  onClick={onCreateImageConfigWithAi}
+                >
+                  <Bot data-icon="inline-start" />
+                  {creatingAiConfig ? "生成中" : "生成并保存配置"}
+                </Button>
+              ) : (
+                <Button
+                  className="h-10 bg-primary text-primary-foreground hover:bg-primary/90"
+                  disabled={loading || Boolean(httpConfigError)}
+                  onClick={onSaveImageConfig}
+                >
+                  <Save data-icon="inline-start" />
+                  {editingConfigId ? "保存修改" : "保存配置"}
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>
@@ -438,6 +479,78 @@ function BaseConfigFields({
           </div>
         </Field>
       </div>
+    </div>
+  )
+}
+
+function AiConfigFields({
+  aiImageConfigForm,
+  onAiImageConfigFormChange,
+}: {
+  aiImageConfigForm: AiImageModelConfigRequest
+  onAiImageConfigFormChange: (value: AiImageModelConfigRequest) => void
+}) {
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field id="ai-config-name" label="配置名称">
+          <Input
+            id="ai-config-name"
+            className="h-10 border-border/80 bg-background/55"
+            value={aiImageConfigForm.configName ?? ""}
+            onChange={(event) =>
+              onAiImageConfigFormChange({
+                ...aiImageConfigForm,
+                configName: event.target.value,
+              })
+            }
+          />
+        </Field>
+        <Field id="ai-model-name" label="模型快照">
+          <Input
+            id="ai-model-name"
+            className="h-10 border-border/80 bg-background/55"
+            placeholder="gemini-2.5-flash-image-preview"
+            value={aiImageConfigForm.modelName ?? ""}
+            onChange={(event) =>
+              onAiImageConfigFormChange({
+                ...aiImageConfigForm,
+                modelName: event.target.value,
+              })
+            }
+          />
+        </Field>
+      </div>
+
+      <Field id="ai-source-url" label="文档地址">
+        <Input
+          id="ai-source-url"
+          className="h-10 border-border/80 bg-background/55 font-mono text-sm"
+          placeholder="https://docs.example.com/image-api"
+          value={aiImageConfigForm.sourceUrl ?? ""}
+          onChange={(event) =>
+            onAiImageConfigFormChange({
+              ...aiImageConfigForm,
+              sourceUrl: event.target.value,
+            })
+          }
+        />
+      </Field>
+
+      <Field id="ai-source-text" label="文档信息">
+        <Textarea
+          id="ai-source-text"
+          className="min-h-[260px] resize-y border-border/80 bg-background/55 font-mono text-xs leading-5"
+          spellCheck={false}
+          value={aiImageConfigForm.sourceText ?? ""}
+          onChange={(event) =>
+            onAiImageConfigFormChange({
+              ...aiImageConfigForm,
+              sourceText: event.target.value,
+            })
+          }
+        />
+      </Field>
     </div>
   )
 }

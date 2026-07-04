@@ -404,6 +404,43 @@ export const updateImageModelConfigEnabledSchema = z.object({
   enabled: z.boolean(),
 });
 
+export const aiImageModelConfigRequestSchema = z
+  .object({
+    configName: z.string().max(120, '配置名称不能超过 120 个字符').optional(),
+    modelName: z.string().max(160, '模型快照不能超过 160 个字符').optional(),
+    sourceUrl: z.url('文档地址格式不正确').or(z.literal('')).optional(),
+    sourceText: z
+      .string()
+      .max(60000, '文档信息不能超过 60000 个字符')
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.sourceUrl?.trim() && !value.sourceText?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '文档地址和文档信息至少填写一项',
+        path: ['sourceText'],
+      });
+    }
+  });
+
+export const aiGeneratedImageModelConfigSchema = z
+  .object({
+    name: z.string().min(1, '配置名称不能为空').max(120),
+    providerType: z.literal(ImageProviderTypeEnum.ConfigurableHttp),
+    deliveryMode: z.enum(imageProviderDeliveryModes),
+    baseUrl: z.string().optional(),
+    generationPath: z.string().optional(),
+    editPath: z.string().optional(),
+    modelName: z.string().optional(),
+    fieldMapping: imageProviderFieldMappingSchema,
+    fieldOverrides: imageProviderFieldOverridesSchema,
+    pollingConfig: imageProviderPollingConfigSchema,
+    httpConfig: imageProviderHttpConfigSchema,
+    enabled: z.literal(false).optional(),
+  })
+  .strict();
+
 export const assistantModelConfigSchema = z.object({
   mode: z.enum(assistantProviderModes),
   url: z.url('请求地址格式不正确').or(z.literal('')),
@@ -551,6 +588,12 @@ export type UpdateImageModelConfigInput = z.infer<
 >;
 export type UpdateImageModelConfigEnabledInput = z.infer<
   typeof updateImageModelConfigEnabledSchema
+>;
+export type AiImageModelConfigRequest = z.infer<
+  typeof aiImageModelConfigRequestSchema
+>;
+export type AiGeneratedImageModelConfig = z.infer<
+  typeof aiGeneratedImageModelConfigSchema
 >;
 export type AssistantModelConfig = z.infer<typeof assistantModelConfigSchema>;
 export type UpdateAssistantModelConfigInput = z.infer<

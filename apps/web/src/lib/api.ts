@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  AiImageModelConfigRequest,
   AssistantModelConfig,
   CreateImageJobInput,
   CreateImageModelConfigInput,
@@ -72,6 +73,11 @@ export const api = {
     request<ImageModelConfig[]>("/image-model-configs"),
   createImageModelConfig: (input: CreateImageModelConfigInput) =>
     request<ImageModelConfig>("/image-model-configs", {
+      method: "POST",
+      data: input,
+    }),
+  createImageModelConfigWithAi: (input: AiImageModelConfigRequest) =>
+    request<ImageModelConfig>("/image-model-configs/ai-generate", {
       method: "POST",
       data: input,
     }),

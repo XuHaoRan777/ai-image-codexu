@@ -9,12 +9,14 @@ import {
   Post,
 } from '@nestjs/common';
 import type {
+  AiImageModelConfigRequest,
   CreateImageJobInput,
   CreateImageModelConfigInput,
   UpdateImageModelConfigEnabledInput,
   UpdateImageModelConfigInput,
 } from '@ai-image-codexu/shared';
 import {
+  aiImageModelConfigRequestSchema,
   createImageJobSchema,
   createImageModelConfigSchema,
   updateImageModelConfigEnabledSchema,
@@ -46,6 +48,16 @@ export class ImageGenerationController {
   createImageModelConfig(@Body() body: CreateImageModelConfigInput) {
     return this.imageGenerationService.createImageModelConfig(
       createImageModelConfigSchema.parse(body),
+    );
+  }
+
+  @Post('image-model-configs/ai-generate')
+  /**
+   * 使用辅助模型根据文档生成生图 HTTP 配置，并以未启用状态落库。
+   */
+  createImageModelConfigWithAi(@Body() body: AiImageModelConfigRequest) {
+    return this.imageGenerationService.createImageModelConfigWithAi(
+      aiImageModelConfigRequestSchema.parse(body),
     );
   }
 

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageProcessingModule } from '../image-processing/image-processing.module';
+import { PromptOptimizerModule } from '../prompt-optimizer/prompt-optimizer.module';
 import { ImageGenerationController } from './image-generation.controller';
 import { ImageProviderDispatcher } from './image-generation.providers';
 import { ImageGenerationService } from './image-generation.service';
@@ -11,6 +12,7 @@ import { ImageGenerationService } from './image-generation.service';
   imports: [
     TypeOrmModule.forFeature([ImageModelConfigEntity, ImageJobEntity]),
     ImageProcessingModule,
+    PromptOptimizerModule,
   ],
   controllers: [ImageGenerationController],
   providers: [ImageGenerationService, ImageProviderDispatcher],

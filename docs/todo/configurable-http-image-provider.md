@@ -482,3 +482,5 @@ createImageJob
 7. [x] 2026-07-02 修正请求体模板按钮的联动范围：点击 OpenAI / Google 请求体模板时保留当前请求地址，只更新请求体分段。
 8. [x] 2026-07-03 将请求体分段从“原始 body + bindings”调整为“项目字段 body 参数配置”，同步 shared schema、后端请求组装、前端预设/生成页动态选项，并通过 `@ai-image-codexu/shared` build、`@ai-image-codexu/api` build/test、`@ai-image-codexu/web` lint/build；web build 仅保留 Vite chunk 超 500k 警告。
 9. [x] 2026-07-03 将配置页 HTTP 模板从三段 JSON textarea 重构为结构化表单草稿，保存前封装为 `httpConfig` JSON；补充 polling 轮询配置表单，请求头、请求体和返回格式分段预设仍只替换对应分段，并通过 `@ai-image-codexu/web` lint/build。
+10. [x] 2026-07-03 新增 AI 配置生成入口：配置 Dialog 增加 AI 配置页签，后端复用辅助模型把文档 URL/文本转换为 `configurable-http` 配置，生成结果强制未启用且不写入 API key，并在模型启用路径增加可解密密钥检查。
+11. [x] 2026-07-04 重写 AI 配置生成提示词：补充基础生图参数完整生成规则、OpenAI/Google 缺省补齐策略、参考图模式选择、extra 固定参数、响应提取和 polling 规则，避免生成只可落库但缺少可用配置的记录。

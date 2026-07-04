@@ -7,6 +7,7 @@ import { decryptSecret } from '../../common/utils/secretCrypto';
 import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
+import { PromptOptimizerService } from '../prompt-optimizer/prompt-optimizer.service';
 import { ImageProviderDispatcher } from './image-generation.providers';
 import { ImageGenerationService } from './image-generation.service';
 
@@ -14,6 +15,7 @@ describe('ImageGenerationService', () => {
   let modelRepository: Repository<ImageModelConfigEntity>;
   let jobRepository: Repository<ImageJobEntity>;
   let dispatcher: ImageProviderDispatcher;
+  let promptOptimizerService: { generateImageProviderConfig: jest.Mock };
   let service: ImageGenerationService;
   let deletedImageUrls: string[];
 
@@ -34,6 +36,9 @@ describe('ImageGenerationService', () => {
         tokenUsage: 42,
       })),
     } as unknown as ImageProviderDispatcher;
+    promptOptimizerService = {
+      generateImageProviderConfig: jest.fn(),
+    };
     service = new ImageGenerationService(
       modelRepository,
       jobRepository,
@@ -46,6 +51,7 @@ describe('ImageGenerationService', () => {
         },
       } as ImageStorageService,
       dispatcher,
+      promptOptimizerService as unknown as PromptOptimizerService,
     );
   });
 
@@ -126,6 +132,63 @@ describe('ImageGenerationService', () => {
       apiKeyEncrypted: storedBefore?.apiKeyEncrypted,
       enabled: false,
     });
+  });
+
+  it('creates AI generated image model configs disabled without API key', async () => {
+    promptOptimizerService.generateImageProviderConfig.mockResolvedValue({
+      name: 'Generated Nano',
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
+      deliveryMode: 'sync',
+      baseUrl: '',
+      generationPath: '',
+      editPath: '',
+      modelName: 'nano-banana',
+      fieldMapping: {},
+      fieldOverrides: {},
+      pollingConfig: {},
+      httpConfig: createHttpConfig(),
+      enabled: false,
+    });
+
+    const created = await service.createImageModelConfigWithAi({
+      configName: 'AI Generated',
+      modelName: 'model-from-user',
+      sourceText: 'API docs',
+    });
+
+    expect(created.name).toBe('AI Generated');
+    expect(created.modelName).toBe('model-from-user');
+    expect(created.providerType).toBe('configurable-http');
+    expect(created.enabled).toBe(false);
+    expect(created.apiKeyMasked).toBeUndefined();
+    expect(created.httpConfig).toEqual(createHttpConfig());
+    await expect(
+      modelRepository.findOneBy({ id: created.id }),
+    ).resolves.toMatchObject({
+      apiKeyEncrypted: null,
+      apiKeyMasked: null,
+      enabled: false,
+    });
+  });
+
+  it('rejects enabling image model configs without a stored API key', async () => {
+    const created = await service.createImageModelConfig({
+      name: 'disabled',
+      providerType: ImageProviderTypeEnum.ConfigurableHttp,
+      deliveryMode: 'sync',
+      baseUrl: 'https://example.com',
+      apiKey: '',
+      modelName: 'gpt-image-2',
+      httpConfig: createHttpConfig(),
+      enabled: false,
+    });
+
+    await expect(
+      service.updateImageModelConfigEnabled(created.id, { enabled: true }),
+    ).rejects.toThrow('启用模型前请先填写 API key');
+    await expect(
+      service.updateImageModelConfig(created.id, { enabled: true }),
+    ).rejects.toThrow('启用模型前请先填写 API key');
   });
 
   it('creates image jobs with selected config', async () => {

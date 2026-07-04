@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AspectRatio,
+  type AiImageModelConfigRequest,
   type AssistantModelConfig,
   type CreateImageModelConfigInput,
   type ImageJob,
@@ -119,6 +120,13 @@ const initialAssistantForm: AssistantFormState = {
   enabled: false,
 }
 
+const initialAiImageConfigForm: AiImageModelConfigRequest = {
+  configName: "",
+  modelName: "",
+  sourceUrl: "",
+  sourceText: "",
+}
+
 function App() {
   const [view, setView] = useState<View>(() => readViewFromHash())
   const [imageConfigs, setImageConfigs] = useState<ImageModelConfig[]>([])
@@ -127,6 +135,9 @@ function App() {
   const [imageConfigForm, setImageConfigForm] = useState(initialImageConfigForm)
   const [httpConfigDraft, setHttpConfigDraft] = useState(() =>
     createHttpConfigDraft(defaultImageProviderHttpPreset.config),
+  )
+  const [aiImageConfigForm, setAiImageConfigForm] = useState(
+    initialAiImageConfigForm,
   )
   const [assistantForm, setAssistantForm] = useState(initialAssistantForm)
   const [configFormVisible, setConfigFormVisible] = useState(false)
@@ -143,6 +154,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [optimizingPrompt, setOptimizingPrompt] = useState(false)
   const [creatingJob, setCreatingJob] = useState(false)
+  const [creatingAiConfig, setCreatingAiConfig] = useState(false)
   const [pollingJobId, setPollingJobId] = useState("")
   const [deletingHistoryJobId, setDeletingHistoryJobId] = useState("")
   const [updatingAssistantEnabled, setUpdatingAssistantEnabled] =
@@ -327,6 +339,7 @@ function App() {
   function resetImageConfigForm() {
     setImageConfigForm(initialImageConfigForm)
     setHttpConfigDraft(createHttpConfigDraft(defaultImageProviderHttpPreset.config))
+    setAiImageConfigForm(initialAiImageConfigForm)
     setEditingConfigId(null)
   }
 
@@ -483,6 +496,37 @@ function App() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存配置失败")
     } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleCreateImageConfigWithAi() {
+    const input: AiImageModelConfigRequest = {
+      configName: aiImageConfigForm.configName?.trim() ?? "",
+      modelName: aiImageConfigForm.modelName?.trim() ?? "",
+      sourceUrl: aiImageConfigForm.sourceUrl?.trim() ?? "",
+      sourceText: aiImageConfigForm.sourceText?.trim() ?? "",
+    }
+
+    if (!input.sourceUrl && !input.sourceText) {
+      toast.warning("请填写文档地址或文档信息")
+      return
+    }
+
+    setLoading(true)
+    setCreatingAiConfig(true)
+
+    try {
+      const created = await api.createImageModelConfigWithAi(input)
+
+      setImageConfigs((current) => [created, ...current])
+      resetImageConfigForm()
+      setConfigFormVisible(false)
+      toast.success("AI 配置已生成，补充密钥后可启用")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "AI 配置生成失败")
+    } finally {
+      setCreatingAiConfig(false)
       setLoading(false)
     }
   }
@@ -830,8 +874,10 @@ function App() {
               <ImageRecognitionPage assistantConfig={assistantConfig} />
             ) : (
               <SettingsPage
+                aiImageConfigForm={aiImageConfigForm}
                 assistantForm={assistantForm}
                 configFormVisible={configFormVisible}
+                creatingAiConfig={creatingAiConfig}
                 editingConfigId={editingConfigId}
                 httpConfigDraft={httpConfigDraft}
                 imageConfigForm={imageConfigForm}
@@ -844,9 +890,11 @@ function App() {
                 onAssistantEnabledChange={handleToggleAssistantEnabled}
                 onApplyHttpSectionPreset={handleApplyHttpSectionPreset}
                 onCancelConfigForm={cancelConfigForm}
+                onCreateImageConfigWithAi={handleCreateImageConfigWithAi}
                 onDeleteConfig={handleDeleteConfig}
                 onEditConfig={startEditConfig}
                 onHttpConfigDraftChange={setHttpConfigDraft}
+                onAiImageConfigFormChange={setAiImageConfigForm}
                 onImageConfigFormChange={setImageConfigForm}
                 onSaveAssistant={handleSaveAssistant}
                 onSaveImageConfig={handleSaveImageConfig}

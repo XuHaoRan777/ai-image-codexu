@@ -35,6 +35,7 @@ apps/api/src/
 
 - `GET /api/image-model-configs`
 - `POST /api/image-model-configs`
+- `POST /api/image-model-configs/ai-generate`
 - `PATCH /api/image-model-configs/:id`
 - `PATCH /api/image-model-configs/:id/enabled`
 - `DELETE /api/image-model-configs/:id`
@@ -53,6 +54,9 @@ apps/api/src/
 配置页接口由 shared schema 校验，当前持久化范围：
 
 - `image-model-configs` 使用 `ImageModelConfigEntity` 和 `image_model_config` 表持久化；新主流程以 `providerType = configurable-http` 和 `httpConfig` 为核心，后端保存 HTTP 请求头、请求体参数配置、响应提取路径、轮询配置、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。旧的 `openai-compatible` / `google-compatible`、字段映射、旧 bindings 和旧轮询字段仅作为历史过渡字段保留，新建配置由前端统一保存为 `configurable-http`。
+- `POST /api/image-model-configs/ai-generate` 接收 `configName`、`modelName`、`sourceUrl`、`sourceText`，其中文档地址和文档信息至少填写一项。后端会尝试抓取公开文档 URL 并合并用户粘贴信息；如果文档抓取失败，不阻断流程，只把文档地址和用户粘贴信息交给已启用的辅助模型生成 `configurable-http` 模型配置对象。生成结果必须通过 shared schema 校验后才落库。
+- AI 生成模型配置不会写入 API key，后端强制保存为 `enabled = false`、`api_key_masked = null`、`api_key_encrypted = null`。生成结果中的敏感请求头必须使用 `{{apiKey}}` 占位符，否则拒绝落库；用户需要后续在基础配置中补充密钥后才能启用。
+- 创建或更新模型时，如果请求将模型置为启用状态，后端必须确认当前请求提供了密钥或数据库中已有可解密的 `api_key_encrypted`；否则返回“启用模型前请先填写 API key”。启停专用接口同样执行该检查。
 - `PATCH /api/image-model-configs/:id/enabled` 仅接收 `{ enabled: boolean }`，用于模型库列表项内快速启停配置；接口只更新 `enabled` 与 `updated_at`，不接收密钥、地址或模型名等其它配置字段。
 - `assistant-config` 使用固定 `id = default` 的 `AssistantModelConfigEntity` 和 `assistant_model_config` 表维护单条辅助模型配置；后端保存完整请求地址 `url`、`api_key_encrypted` 密文和 `api_key_masked` 掩码，前端只接收 `apiKeyMasked`。
 - `POST /api/prompt/optimize` 必须读取已保存的 `assistant-config` 并调用真实辅助模型 provider；辅助模型未启用、缺少请求地址、缺少模型名或缺少可解密 API key 时返回明确错误，不在后端本地拼接假优化结果。
@@ -150,6 +154,7 @@ export class EntityName {
 - 辅助模型 OpenAI 模式使用 Chat Completions 协议：请求地址直接使用配置中的完整 `url`，后端不追加 `/chat/completions`，通过 `Authorization: Bearer <apiKey>` 鉴权，响应读取 `choices[0].message.content`。
 - 辅助模型 Claude 模式使用 Anthropic Messages 协议：请求地址直接使用配置中的完整 `url`，后端不追加 `/v1/messages`，通过 `x-api-key` 和 `anthropic-version: 2023-06-01` 鉴权，响应读取首个 `type = text` 的 `content[].text`。
 - 辅助模型提示词优化只返回优化后的提示词正文；请求失败时向前端返回第三方错误摘要，不记录或返回原始 API key。
+- AI 配置生成复用辅助模型配置。系统提示词要求辅助模型只输出可解析 JSON，不输出 Markdown 或解释；输出对象固定为 `providerType = configurable-http`、`enabled = false`，鉴权字段只能使用 `{{apiKey}}` 占位符，`httpConfig.request.body` 必须是项目字段参数配置而不是第三方原始请求体。提示词必须明确基础生图参数 `aspectRatio`、`resolution`、`quantity` 的配置规则：文档缺项时按 OpenAI-compatible 或 Google/Gemini-compatible 缺省选项补齐，且必须生成 `referenceImages` 配置，按文档能力选择 `none`、`inlineBase64`、`multipart` 或预留的 `urlArray`。
 - 辅助模型系统提示词必须以用户原意为最高优先级，只在不改变主体、动作、场景、风格、数量、视角和故事含义的前提下补充构图、镜头、光线、材质、质量和负面约束。
 - 识图接口请求体通过 JSON 接收单张图片 data URL，API JSON body limit 为 30MB；后端只在请求生命周期内解析图片，不写入本地存储或数据库。
 - 每个第三方中转商不再单独维护 provider 方法。`image-generation.providers.ts` 的新主入口为 `generateConfiguredHttp`，根据 `httpConfig.request` 组装最终 URL、headers、content type 和 body。

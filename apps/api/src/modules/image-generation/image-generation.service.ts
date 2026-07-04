@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type {
+  AiImageModelConfigRequest,
   CreateImageJobInput,
   CreateImageModelConfigInput,
   ImageJob,
@@ -16,6 +21,7 @@ import { decryptSecret, encryptSecret } from '../../common/utils/secretCrypto';
 import { ImageJobEntity } from '../../entity/ImageJob';
 import { ImageModelConfigEntity } from '../../entity/ImageModelConfig';
 import { ImageStorageService } from '../image-processing/image-storage.service';
+import { PromptOptimizerService } from '../prompt-optimizer/prompt-optimizer.service';
 import { ImageProviderDispatcher } from './image-generation.providers';
 
 @Injectable()
@@ -30,6 +36,7 @@ export class ImageGenerationService {
     private readonly imageJobRepository: Repository<ImageJobEntity>,
     private readonly imageStorageService: ImageStorageService,
     private readonly imageProviderDispatcher: ImageProviderDispatcher,
+    private readonly promptOptimizerService: PromptOptimizerService,
   ) {}
 
   /**
@@ -49,6 +56,11 @@ export class ImageGenerationService {
   async createImageModelConfig(input: CreateImageModelConfigInput) {
     const timestamp = new Date();
     const apiKey = input.apiKey?.trim() ?? '';
+
+    if (input.enabled && !apiKey) {
+      throw new BadRequestException('启用模型前请先填写 API key');
+    }
+
     const config = this.imageModelConfigRepository.create({
       id: crypto.randomUUID(),
       name: input.name,
@@ -65,6 +77,38 @@ export class ImageGenerationService {
       pollingConfig: input.pollingConfig ?? null,
       httpConfig: input.httpConfig ?? null,
       enabled: input.enabled,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const saved = await this.imageModelConfigRepository.save(config);
+
+    return this.toImageModelConfig(saved);
+  }
+
+  /**
+   * 使用辅助模型根据文档生成生图 HTTP 配置，并以未启用状态落库。
+   */
+  async createImageModelConfigWithAi(input: AiImageModelConfigRequest) {
+    const generated =
+      await this.promptOptimizerService.generateImageProviderConfig(input);
+    const timestamp = new Date();
+    const config = this.imageModelConfigRepository.create({
+      id: crypto.randomUUID(),
+      name: input.configName?.trim() || generated.name,
+      providerType: generated.providerType,
+      deliveryMode: generated.deliveryMode,
+      baseUrl: generated.baseUrl ?? '',
+      generationPath: generated.generationPath || null,
+      editPath: generated.editPath || null,
+      apiKeyMasked: null,
+      apiKeyEncrypted: null,
+      modelName: input.modelName?.trim() || generated.modelName || '',
+      fieldMapping: generated.fieldMapping ?? null,
+      fieldOverrides: generated.fieldOverrides ?? null,
+      pollingConfig: generated.pollingConfig ?? null,
+      httpConfig: generated.httpConfig,
+      // AI 生成配置不写入密钥，必须默认未启用，等用户补 API key 后再启用。
+      enabled: false,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -124,6 +168,11 @@ export class ImageGenerationService {
     if (input.enabled !== undefined) {
       existing.enabled = input.enabled;
     }
+
+    if (existing.enabled && !hasUsableApiKey(existing)) {
+      throw new BadRequestException('启用模型前请先填写 API key');
+    }
+
     existing.updatedAt = new Date();
 
     const saved = await this.imageModelConfigRepository.save(existing);
@@ -142,6 +191,10 @@ export class ImageGenerationService {
 
     if (!existing) {
       return null;
+    }
+
+    if (input.enabled && !hasUsableApiKey(existing)) {
+      throw new BadRequestException('启用模型前请先填写 API key');
     }
 
     existing.enabled = input.enabled;
@@ -411,4 +464,17 @@ function collectImageJobUrls(
       ...(job.imageUrl ? [job.imageUrl] : []),
     ]),
   );
+}
+
+/**
+ * 启用模型前必须确认数据库里有真实可解密密钥；AI 生成配置只有模板，不会写入 API key。
+ */
+function hasUsableApiKey(
+  entity: Pick<ImageModelConfigEntity, 'apiKeyEncrypted'>,
+) {
+  try {
+    return Boolean(decryptSecret(entity.apiKeyEncrypted)?.trim());
+  } catch {
+    return false;
+  }
 }
