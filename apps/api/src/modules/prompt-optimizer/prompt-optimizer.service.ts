@@ -65,7 +65,7 @@ const imageProviderConfigSystemPrompt = [
   '基础生图参数指：尺寸比例 aspectRatio、分辨率 resolution、生成数量 quantity。即使文档没有完整列出，也必须根据 API 类型补齐一个可编辑、可运行的默认配置。',
   'aspectRatio 用于前端展示比例选项，必须写成 { "path": "...", "options": [{ "label": "...", "value": ... }] }。',
   'resolution 用于前端展示清晰度/分辨率选项，必须写成 { "path": "...", "options": [{ "label": "...", "value": ... }] }。',
-  'quantity 用于前端展示生成数量，必须写成 { "enabled": boolean, "path": "...", "min": 1, "max": number, "defaultValue": 1 }。如果接口不支持数量，enabled=false；如果接口支持但文档没写上限，max 默认 3。',
+  'quantity 用于前端展示生成数量，必须写成 { "enabled": boolean, "path": "...", "min": 1, "max": number, "defaultValue": 1 }。如果接口不支持数量或者未显示数量配置，enabled=false；如果接口支持但文档没写上限，max 默认 3。',
   '如果文档明确列出参数名或取值，优先使用文档。文档缺少个别基础参数时，按识别到的 API 类型使用下面的 OpenAI 或 Google 缺省规则补齐。',
   '',
   '【OpenAI 风格基础参数缺省规则】',
