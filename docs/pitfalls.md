@@ -1,5 +1,10 @@
 # Pitfalls
 
+## 2026-07-05 HTTP 配置草稿不能把 null 当成缺省值
+
+- 问题：`httpConfig.request.body.aspectRatio.options` 中的 `{ "label": "auto", "value": null }` 表示用户选择 auto 时后端不写入对应第三方参数。如果前端把配置转成表单草稿时使用 `value ?? label`，`null` 会被当作缺省值并回退成 `"auto"`，编辑保存后实际请求就会错误发送 `aspectRatio: "auto"`。
+- 处理：HTTP 配置草稿里要区分“没有 value 字段”和“value 明确为 null”。只有 `value === undefined` 时才回退到 label；`null` 必须格式化为 `"null"` 并在保存时还原为 JSON null。
+
 ## 2026-07-02 配置分段模板按钮不要联动请求地址
 
 - 问题：HTTP 模板配置拆成请求头、请求体、返回格式后，用户点击“请求体”的 OpenAI / Google 模板只是想填充 body 结构。如果同时把 preset 中的 endpoint 写回 `request.url`，会覆盖用户为第三方中转商或官方变体手动填好的请求地址。

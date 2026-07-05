@@ -269,9 +269,16 @@ function createOptionFieldDraft(
         const labeledOption = getLabeledOption(option)
 
         if (labeledOption) {
+          // `value: null` 是后端运行时的有效语义：选择该 label 时不写入对应 path。
+          // 只有完全没有 value 字段时才回退到 label，避免编辑保存后把 null 变成 "auto"。
+          const requestValue =
+            labeledOption.value === undefined
+              ? labeledOption.label
+              : labeledOption.value
+
           return createHttpOptionRow(
             labeledOption.label,
-            formatJsonishValue(labeledOption.value ?? labeledOption.label),
+            formatJsonishValue(requestValue),
           )
         }
 

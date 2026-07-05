@@ -2,6 +2,7 @@
 
 ## 待办
 
+- [x] 2026-07-05 修复 HTTP 模板配置草稿保存时 `null` 被转换为字符串的问题：`aspectRatio.options` 中的 `value:null` 会在编辑页保持为 JSON null，避免 Google/Gemini auto 错误发送 `"auto"`。
 - [x] 2026-07-05 扩展生图任务 token 消耗记录：HTTP 返回格式支持总 token、输入 token、输出 token 三个路径配置，任务历史落库并展示三个字段；当上游只返回输入/输出消耗时，后端自动合计总消耗。
 - [x] 2026-07-03 配置页新增生图模型 AI 配置生成：在模型 Dialog 增加 AI 配置页签，支持提交文档地址/文档信息给辅助模型生成 `configurable-http` 配置并未启用落库；后端新增启用时 API key 可用性检查。
 - [x] 2026-07-04 强化生图模型 AI 配置生成提示词：详细约束基础生图参数、OpenAI/Google 缺省补齐策略、参考图配置、extra、response 和 polling 规则，避免只生成可落库但不可用的空壳配置。
