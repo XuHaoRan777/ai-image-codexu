@@ -109,7 +109,9 @@
       "mimeTypePath": "candidates[].content.parts[].inlineData.mimeType"
     },
     "usage": {
-      "totalTokensPath": "usageMetadata.totalTokenCount"
+      "totalTokensPath": "usageMetadata.totalTokenCount",
+      "inputTokensPath": "usageMetadata.promptTokenCount",
+      "outputTokensPath": "usageMetadata.candidatesTokenCount"
     }
   }
 }
@@ -303,12 +305,14 @@ multipart 示例：
 ```json
 {
   "usage": {
-    "totalTokensPath": "usageMetadata.totalTokenCount"
+    "totalTokensPath": "usageMetadata.totalTokenCount",
+    "inputTokensPath": "usageMetadata.promptTokenCount",
+    "outputTokensPath": "usageMetadata.candidatesTokenCount"
   }
 }
 ```
 
-首阶段把 `usage.totalTokensPath` / `usageMetadata.totalTokenCount` 这类路径提取到 `image_job.token_usage`，其它 metadata 暂不扩表。
+`usage.totalTokensPath`、`inputTokensPath`、`outputTokensPath` 分别提取总消耗、输入消耗和输出消耗。若上游不返回总消耗但返回输入/输出消耗，后端会用输入 + 输出补写总消耗。
 
 ### 轮询
 
@@ -413,7 +417,7 @@ createImageJob
 
 - 请求头键值行编辑。
 - 请求体字段表单：提示词路径、尺寸比例选项、分辨率选项、数量启用和上下限、参考图模式/上限/路径/模板、额外参数 path/value。
-- 返回格式字段表单：图片类型、数据路径或 URL 路径、MIME 路径、固定 MIME、token 消耗路径。
+- 返回格式字段表单：图片类型、数据路径或 URL 路径、MIME 路径、固定 MIME、总 token 路径、输入 token 路径和输出 token 路径。
 - 轮询配置表单：`deliveryMode = polling` 时维护轮询请求、请求头、任务 ID 路径、状态路径、成功/失败状态值、间隔、超时和可选独立返回格式。
 - 保存前将表单草稿封装为后端持久化的 `httpConfig` JSON；校验失败时禁用保存并展示错误。
 - 请求头、请求体、返回格式标题右侧提供 OpenAI / Google 官方结构模板填充按钮，不展示第三方中转商快捷模板。
@@ -458,7 +462,7 @@ createImageJob
 - 是否确认采用“推翻重做”，允许现有生图模型配置手动重建？ 确认推翻重做。
 - 如果不推翻重做，旧配置 fallback 需要保留多久？ 推翻重做。
 - 配置页 JSON 编辑器第一版是否用 textarea 即可？ 可以。
-- 是否需要把 token 消耗等 metadata 持久化到 `image_job`，还是只先打印日志？ 本次只需要额外增加一个 token消耗字段就行。
+- 是否需要把 token 消耗等 metadata 持久化到 `image_job`，还是只先打印日志？ 当前持久化总 token、输入 token、输出 token 三个字段。
 - API key 是否坚持继续单独加密存储，并在 headers JSON 中只使用 `{{apiKey}}`？ 可以。
 - 是否第一阶段只支持 `inlineBase64` 和 `multipart` 两种参考图模式，暂不支持 `image_urls`？ 需要预留位置。这个需要本项目额外适配OSS配置，以后需要实现。
 
@@ -484,3 +488,4 @@ createImageJob
 9. [x] 2026-07-03 将配置页 HTTP 模板从三段 JSON textarea 重构为结构化表单草稿，保存前封装为 `httpConfig` JSON；补充 polling 轮询配置表单，请求头、请求体和返回格式分段预设仍只替换对应分段，并通过 `@ai-image-codexu/web` lint/build。
 10. [x] 2026-07-03 新增 AI 配置生成入口：配置 Dialog 增加 AI 配置页签，后端复用辅助模型把文档 URL/文本转换为 `configurable-http` 配置，生成结果强制未启用且不写入 API key，并在模型启用路径增加可解密密钥检查。
 11. [x] 2026-07-04 重写 AI 配置生成提示词：补充基础生图参数完整生成规则、OpenAI/Google 缺省补齐策略、参考图模式选择、extra 固定参数、响应提取和 polling 规则，避免生成只可落库但缺少可用配置的记录。
+12. [x] 2026-07-05 扩展 token 消耗记录：`response.usage` 增加输入/输出 token 路径，`image_job` 增加 `input_token_usage` 与 `output_token_usage`，上游缺少总消耗时由输入 + 输出自动补总消耗。

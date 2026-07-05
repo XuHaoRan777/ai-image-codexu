@@ -156,6 +156,8 @@ export const imageProviderHttpPresets: ImageProviderHttpPreset[] = [
         },
         usage: {
           totalTokensPath: "usageMetadata.totalTokenCount",
+          inputTokensPath: "usageMetadata.promptTokenCount",
+          outputTokensPath: "usageMetadata.candidatesTokenCount",
         },
       },
     },

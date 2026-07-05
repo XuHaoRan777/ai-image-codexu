@@ -510,6 +510,8 @@ function createAiGeneratedImageConfig() {
         },
         usage: {
           totalTokensPath: 'usageMetadata.totalTokenCount',
+          inputTokensPath: 'usageMetadata.promptTokenCount',
+          outputTokensPath: 'usageMetadata.candidatesTokenCount',
         },
       },
     },

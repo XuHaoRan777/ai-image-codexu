@@ -121,7 +121,9 @@ apps/api/src/
 - `status`：`queued`、`running`、`succeeded`、`failed` 或 `canceled`；新任务失败时不再保存 `failed` 记录，该状态仅兼容历史旧数据或外部导入数据
 - `image_url`：首张生成图片的本地访问地址，可为空
 - `image_urls`：所有生成图片的本地访问地址数组，可为空
-- `token_usage`：第三方响应中提取的 token 消耗，可为空
+- `token_usage`：第三方响应中提取或由输入/输出相加得到的总 token 消耗，可为空
+- `input_token_usage`：第三方响应中提取的输入 token 消耗，可为空
+- `output_token_usage`：第三方响应中提取的输出 token 消耗，可为空
 - `error_message`：任务失败错误信息，可为空
 - `created_at` / `updated_at`：创建与更新时间
 
@@ -163,11 +165,11 @@ export class EntityName {
 - `quantity.enabled = false` 表示不传数量；启用时按 `min/max/defaultValue` 控制前端选项并写入配置的 path。
 - `request.body.referenceImages` 支持 `inlineBase64`、`multipart` 和 `none`；`urlArray` 仅预留，必须等后续 OSS 或公网图片托管能力接入后才能真正启用。
 - `httpConfig.response.images` 使用完整路径提取图片，支持 `base64`、`dataUrl` 和远程 `url`；远程 URL 会由后端下载后保存到本地。
-- `httpConfig.response.usage.totalTokensPath` 提取到的 token 消耗会写入 `image_job.token_usage`。
+- `httpConfig.response.usage.totalTokensPath`、`inputTokensPath`、`outputTokensPath` 分别提取总消耗、输入消耗和输出消耗；如果未配置总消耗但输入/输出都提取成功，后端会用两者相加写入 `image_job.token_usage`。
 - `deliveryMode = polling` 时 `httpConfig.polling` 必填，创建响应用 `taskIdPath` 提取任务 ID，轮询响应用 `statusPath`、`successValue`、`failureValue` 判断状态，成功后使用 `polling.response` 或顶层 `response` 提取图片。
 - `POST /api/image-jobs` 创建任务后立即在 `image_job` 表写入 `queued` 并返回，后台异步执行真实请求；任务执行中置为 `running`，成功后写入 `imageUrl` / `imageUrls`。provider 或图片保存失败后删除任务记录，前端轮询该任务会收到 404；`GET /api/image-jobs` 按创建时间倒序只返回仍持久化的任务历史。
 - `DELETE /api/image-jobs/:id` 对历史任务执行硬删除，不做逻辑删除；接口会删除 `image_job` 数据库记录，并根据记录里的 `imageUrl` / `imageUrls` 清理对应 `/api/images/*` 本地文件。文件不存在时不阻塞记录删除；任务记录不存在时返回 404。
-- 生图任务记录会保存任务实际使用的 `providerType`、`modelName` 和 `tokenUsage`，用于前端历史展示和排查请求；`providerType` 新配置下通常为 `configurable-http`，`modelName` 来自模型配置的模型快照。
+- 生图任务记录会保存任务实际使用的 `providerType`、`modelName`、`tokenUsage`、`inputTokenUsage` 和 `outputTokenUsage`，用于前端历史展示和排查请求；`providerType` 新配置下通常为 `configurable-http`，`modelName` 来自模型配置的模型快照。
 - provider 请求超时时间为 5 分钟。请求前日志打印完成模板渲染、字段映射、参考图注入后的最终请求结构，包含 method、contentType、URL、脱敏 headers 和 body；headers 中的 key、token、authorization 等字段必须脱敏，body 中 data URL 或 base64 只保留前 25 位。
 - 请求失败时，后端仅打印第三方接口返回信息摘要，包含 HTTP 状态和脱敏响应体摘要；日志使用多行缩进 JSON，若第三方响应体是 JSON 字符串会先解析为对象再输出；日志不得包含 API Key、完整图片 base64、上传图片内容或任务上下文。
 - 返回的 base64 图片或远程图片 URL 都会写入 `IMAGE_STORAGE_PATH`，前端只访问本地 `/api/images/*path`。

@@ -52,6 +52,12 @@ export class ImageJobEntity {
   @Column({ type: 'int', name: 'token_usage', nullable: true })
   tokenUsage: number | null;
 
+  @Column({ type: 'int', name: 'input_token_usage', nullable: true })
+  inputTokenUsage: number | null;
+
+  @Column({ type: 'int', name: 'output_token_usage', nullable: true })
+  outputTokenUsage: number | null;
+
   @Column({ type: 'text', name: 'error_message', nullable: true })
   errorMessage: string | null;
 

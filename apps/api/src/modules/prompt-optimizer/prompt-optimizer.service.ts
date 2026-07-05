@@ -71,7 +71,7 @@ const imageProviderConfigSystemPrompt = [
   '【OpenAI 风格基础参数缺省规则】',
   '当文档表现为 OpenAI Images 或 OpenAI-compatible 风格时：',
   'prompt.path 默认 "prompt"。',
-  'aspectRatio.path 默认 "size"；options 默认 [{"label":"auto","value":"auto"},{"label":"1:1","value":"1024x1024"},{"label":"4:3","value":"1536x1024"},{"label":"3:4","value":"1024x1536"},{"label":"16:9","value":"1536x864"},{"label":"9:16","value":"864x1536"}]。如果文档列出其它 size，以文档为准，但不要缺少常用比例。',
+  'aspectRatio.path 默认 "size"；options 默认 [{"label":"auto","value":null},{"label":"1:1","value":"1024x1024"},{"label":"4:3","value":"1536x1024"},{"label":"3:4","value":"1024x1536"},{"label":"16:9","value":"1536x864"},{"label":"9:16","value":"864x1536"}]。如果文档列出其它 size，以文档为准，但不要缺少常用比例。',
   'resolution.path 默认 "quality"；options 默认 [{"label":"0.5k","value":"low"},{"label":"1k","value":"medium"},{"label":"2k","value":"high"},{"label":"4k","value":"high"}]。如果文档把分辨率并入 size，也仍然保留 resolution 配置，使用最接近的 quality 或文档字段。',
   'quantity.enabled 默认 true；quantity.path 默认 "n"；min=1；max 优先按文档，否则默认 1；defaultValue=1。',
   'extra 至少应包含 {"path":"model","value":"模型名"}；如果接口返回 base64，通常还需要 {"path":"response_format","value":"b64_json"}，除非文档不支持。',
@@ -103,7 +103,9 @@ const imageProviderConfigSystemPrompt = [
   '如果响应返回 data URL，type="dataUrl"，填写 dataPath。',
   '如果响应返回远程图片 URL，type="url"，填写 urlPath，例如 "data[].url" 或文档中的结果 URL 路径。',
   '尽量填写 mimeTypePath；如果没有动态 MIME，就填写固定 mimeType，例如 "image/png"。',
-  '如果响应中有 token 消耗，填写 response.usage.totalTokensPath，例如 OpenAI "usage.total_tokens"，Google "usageMetadata.totalTokenCount"；没有就省略 usage。',
+  '如果响应中有 token 消耗，填写 response.usage。总消耗路径写 totalTokensPath，输入消耗路径写 inputTokensPath，输出消耗路径写 outputTokensPath。',
+  '如果接口只返回总消耗，只填写 totalTokensPath；如果只返回输入/输出消耗，只填写 inputTokensPath 和 outputTokensPath；如果三者都返回，三者都填写。',
+  '常见路径示例：OpenAI totalTokensPath 可为 "usage.total_tokens"，inputTokensPath 可为 "usage.prompt_tokens"，outputTokensPath 可为 "usage.completion_tokens"；Google totalTokensPath 可为 "usageMetadata.totalTokenCount"，inputTokensPath 可为 "usageMetadata.promptTokenCount"，outputTokensPath 可为 "usageMetadata.candidatesTokenCount"。',
   '',
   '【轮询接口规则】',
   '如果文档是异步任务接口，deliveryMode 必须为 "polling"，并填写 httpConfig.polling。',
@@ -118,7 +120,7 @@ const imageProviderConfigSystemPrompt = [
   '如果仍然无法判断，生成最保守配置：prompt.path="prompt"，aspectRatio.path="size"，resolution.path="quality"，quantity.enabled=false，referenceImages.mode="none"，并确保 response.images 至少有一个文档中能找到的图片路径。',
   '',
   '【最小合法 JSON 示例】',
-  '{"name":"Example Image","providerType":"configurable-http","deliveryMode":"sync","baseUrl":"","generationPath":"","editPath":"","modelName":"example-image","fieldMapping":{},"fieldOverrides":{},"pollingConfig":{},"enabled":false,"httpConfig":{"request":{"method":"POST","url":"https://api.example.com/v1/images","contentType":"json","headers":{"Authorization":"Bearer {{apiKey}}","Content-Type":"application/json"},"body":{"prompt":{"path":"prompt"},"aspectRatio":{"path":"size","options":[{"label":"auto","value":"auto"},{"label":"1:1","value":"1024x1024"}]},"resolution":{"path":"quality","options":[{"label":"1k","value":"medium"},{"label":"2k","value":"high"}]},"quantity":{"enabled":true,"path":"n","min":1,"max":3,"defaultValue":1},"referenceImages":{"mode":"none","maxCount":16},"extra":[{"path":"model","value":"example-image"},{"path":"response_format","value":"b64_json"}]}},"response":{"images":{"type":"base64","dataPath":"data[].b64_json","mimeType":"image/png"}}}}',
+  '{"name":"Example Image","providerType":"configurable-http","deliveryMode":"sync","baseUrl":"","generationPath":"","editPath":"","modelName":"example-image","fieldMapping":{},"fieldOverrides":{},"pollingConfig":{},"enabled":false,"httpConfig":{"request":{"method":"POST","url":"https://api.example.com/v1/images","contentType":"json","headers":{"Authorization":"Bearer {{apiKey}}","Content-Type":"application/json"},"body":{"prompt":{"path":"prompt"},"aspectRatio":{"path":"size","options":[{"label":"1:1","value":"1024x1024"}]},"resolution":{"path":"quality","options":[{"label":"1k","value":"medium"},{"label":"2k","value":"high"}]},"quantity":{"enabled":true,"path":"n","min":1,"max":3,"defaultValue":1},"referenceImages":{"mode":"none","maxCount":16},"extra":[{"path":"model","value":"example-image"},{"path":"response_format","value":"b64_json"}]}},"response":{"images":{"type":"base64","dataPath":"data[].b64_json","mimeType":"image/png"}}}}',
 ].join('\n');
 const imageProviderConfigMaxSourceChars = 36_000;
 const imageProviderConfigFetchTimeoutMs = 20_000;

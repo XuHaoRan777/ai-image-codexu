@@ -241,6 +241,28 @@ export function HistoryPage({
                       value={`${activeImageIndex + 1}/${selectedImageUrls.length}`}
                     />
                   ) : null}
+                  {selectedHistoryJob.tokenUsage !== undefined ? (
+                    <HistoryMeta
+                      label="总 Token"
+                      value={formatTokenUsage(selectedHistoryJob.tokenUsage)}
+                    />
+                  ) : null}
+                  {selectedHistoryJob.inputTokenUsage !== undefined ? (
+                    <HistoryMeta
+                      label="输入 Token"
+                      value={formatTokenUsage(
+                        selectedHistoryJob.inputTokenUsage,
+                      )}
+                    />
+                  ) : null}
+                  {selectedHistoryJob.outputTokenUsage !== undefined ? (
+                    <HistoryMeta
+                      label="输出 Token"
+                      value={formatTokenUsage(
+                        selectedHistoryJob.outputTokenUsage,
+                      )}
+                    />
+                  ) : null}
                   <HistoryMeta
                     label="创建时间"
                     value={formatHistoryTime(selectedHistoryJob.createdAt)}
@@ -310,4 +332,8 @@ function formatHistoryTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+function formatTokenUsage(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value)
 }

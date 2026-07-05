@@ -176,7 +176,9 @@ multipart 示例：
     "mimeTypePath": "candidates[].content.parts[].inlineData.mimeType"
   },
   "usage": {
-    "totalTokensPath": "usageMetadata.totalTokenCount"
+    "totalTokensPath": "usageMetadata.totalTokenCount",
+    "inputTokensPath": "usageMetadata.promptTokenCount",
+    "outputTokensPath": "usageMetadata.candidatesTokenCount"
   }
 }
 ```
@@ -187,7 +189,7 @@ multipart 示例：
 - `dataUrl`：路径取完整 data URL。
 - `url`：路径取远程图片 URL，后端下载后保存到本地。
 
-路径必须是完整层级路径，支持数组展开 `[]`，不支持全对象扫描属性名。`usage.totalTokensPath` 提取到的 token 消耗会保存到 `image_job.token_usage`。
+路径必须是完整层级路径，支持数组展开 `[]`，不支持全对象扫描属性名。`usage.totalTokensPath`、`inputTokensPath`、`outputTokensPath` 分别保存到 `image_job.token_usage`、`input_token_usage`、`output_token_usage`；如果未返回总消耗但输入/输出都存在，后端会自动用两者相加补总消耗。
 
 ## 轮询交付
 
@@ -231,7 +233,7 @@ POST /api/image-jobs
   -> axios 请求第三方接口
   -> sync 直接提取图片，polling 轮询后提取图片
   -> 保存图片到 IMAGE_STORAGE_PATH
-  -> image_job 写入 image_url / image_urls / token_usage 并置为 succeeded
+  -> image_job 写入 image_url / image_urls / token_usage / input_token_usage / output_token_usage 并置为 succeeded
 ```
 
 失败时硬删除任务记录，前端轮询收到 404 后提示失败且不保留历史。
@@ -247,7 +249,7 @@ HTTP 模板页使用前端表单草稿编辑，保存前再封装为后端持久
 
 - 请求头：键值行，支持 `{{apiKey}}` 占位符。
 - 请求体：按项目业务字段维护提示词路径、尺寸比例选项、分辨率选项、数量支持范围、参考图模式和额外参数。
-- 返回格式：维护图片类型、图片路径、MIME 路径、固定 MIME 和 token 消耗路径。
+- 返回格式：维护图片类型、图片路径、MIME 路径、固定 MIME、总 token 路径、输入 token 路径和输出 token 路径。
 - 轮询配置：当交付方式为 polling 时维护轮询请求、任务 ID 路径、状态路径、成功/失败状态值、间隔、超时和可选独立返回格式。
 
 额外参数值、参考图 inline 模板等复杂值仍按单个 JSON 值解析；表单校验失败时禁用保存并展示错误。

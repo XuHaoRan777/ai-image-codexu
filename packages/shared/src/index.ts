@@ -260,6 +260,8 @@ export const imageProviderHttpResponseSchema = z.object({
   usage: z
     .object({
       totalTokensPath: z.string().optional(),
+      inputTokensPath: z.string().optional(),
+      outputTokensPath: z.string().optional(),
     })
     .optional(),
 });
@@ -504,6 +506,8 @@ export const imageJobSchema = z.object({
   imageUrl: z.string().optional(),
   imageUrls: z.array(z.string()).optional(),
   tokenUsage: z.number().int().nonnegative().optional(),
+  inputTokenUsage: z.number().int().nonnegative().optional(),
+  outputTokenUsage: z.number().int().nonnegative().optional(),
   errorMessage: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

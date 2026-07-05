@@ -1271,7 +1271,7 @@ function HttpResponseForm({
         )}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Field id="http-response-mime-path" label="MIME 路径">
           <Input
             id="http-response-mime-path"
@@ -1292,7 +1292,7 @@ function HttpResponseForm({
             onChange={(event) => updateResponse({ mimeType: event.target.value })}
           />
         </Field>
-        <Field id="http-response-token-path" label="Token 路径">
+        <Field id="http-response-token-path" label="总 Token 路径">
           <Input
             id="http-response-token-path"
             className="h-9 border-border/80 bg-background/55 font-mono text-sm"
@@ -1300,6 +1300,28 @@ function HttpResponseForm({
             value={response.totalTokensPath}
             onChange={(event) =>
               updateResponse({ totalTokensPath: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-response-input-token-path" label="输入 Token 路径">
+          <Input
+            id="http-response-input-token-path"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="usageMetadata.promptTokenCount"
+            value={response.inputTokensPath}
+            onChange={(event) =>
+              updateResponse({ inputTokensPath: event.target.value })
+            }
+          />
+        </Field>
+        <Field id="http-response-output-token-path" label="输出 Token 路径">
+          <Input
+            id="http-response-output-token-path"
+            className="h-9 border-border/80 bg-background/55 font-mono text-sm"
+            placeholder="usageMetadata.candidatesTokenCount"
+            value={response.outputTokensPath}
+            onChange={(event) =>
+              updateResponse({ outputTokensPath: event.target.value })
             }
           />
         </Field>

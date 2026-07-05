@@ -85,7 +85,8 @@ describe('ImageProviderDispatcher', () => {
           },
         ],
         usageMetadata: {
-          totalTokenCount: 42,
+          promptTokenCount: 17,
+          candidatesTokenCount: 25,
         },
       },
     });
@@ -146,7 +147,8 @@ describe('ImageProviderDispatcher', () => {
               'candidates[].content.parts[].inlineData.mimeType',
           },
           usage: {
-            totalTokensPath: 'usageMetadata.totalTokenCount',
+            inputTokensPath: 'usageMetadata.promptTokenCount',
+            outputTokensPath: 'usageMetadata.candidatesTokenCount',
           },
         },
       },
@@ -165,6 +167,8 @@ describe('ImageProviderDispatcher', () => {
         },
       ],
       tokenUsage: 42,
+      inputTokenUsage: 17,
+      outputTokenUsage: 25,
     });
     expect(mockedAxios.post).toHaveBeenCalledWith(
       'https://api.apiyi.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent',

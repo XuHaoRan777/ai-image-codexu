@@ -68,6 +68,8 @@ export type HttpConfigDraft = {
     mimeTypePath: string
     mimeType: string
     totalTokensPath: string
+    inputTokensPath: string
+    outputTokensPath: string
   }
   polling: {
     request: {
@@ -291,6 +293,8 @@ function createResponseDraft(
     mimeTypePath: response.images.mimeTypePath ?? "",
     mimeType: response.images.mimeType ?? "",
     totalTokensPath: response.usage?.totalTokensPath ?? "",
+    inputTokensPath: response.usage?.inputTokensPath ?? "",
+    outputTokensPath: response.usage?.outputTokensPath ?? "",
   }
 }
 
@@ -524,6 +528,8 @@ function buildResponseConfig(
   const mimeTypePath = draft.mimeTypePath.trim()
   const mimeType = draft.mimeType.trim()
   const totalTokensPath = draft.totalTokensPath.trim()
+  const inputTokensPath = draft.inputTokensPath.trim()
+  const outputTokensPath = draft.outputTokensPath.trim()
 
   if (draft.imageType === "url") {
     if (!urlPath) {
@@ -545,15 +551,15 @@ function buildResponseConfig(
     images.mimeType = mimeType
   }
 
+  const usage = {
+    ...(totalTokensPath ? { totalTokensPath } : {}),
+    ...(inputTokensPath ? { inputTokensPath } : {}),
+    ...(outputTokensPath ? { outputTokensPath } : {}),
+  }
+
   return {
     images,
-    ...(totalTokensPath
-      ? {
-          usage: {
-            totalTokensPath,
-          },
-        }
-      : {}),
+    ...(Object.keys(usage).length > 0 ? { usage } : {}),
   }
 }
 

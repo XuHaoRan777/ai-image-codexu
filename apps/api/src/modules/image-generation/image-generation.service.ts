@@ -242,6 +242,8 @@ export class ImageGenerationService {
       imageUrl: null,
       imageUrls: null,
       tokenUsage: null,
+      inputTokenUsage: null,
+      outputTokenUsage: null,
       errorMessage: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -356,6 +358,8 @@ export class ImageGenerationService {
         imageUrl: imageUrls[0],
         imageUrls,
         tokenUsage: providerResult.tokenUsage ?? null,
+        inputTokenUsage: providerResult.inputTokenUsage ?? null,
+        outputTokenUsage: providerResult.outputTokenUsage ?? null,
         errorMessage: null,
         updatedAt: new Date(),
       });
@@ -406,6 +410,8 @@ export class ImageGenerationService {
       imageUrl: entity.imageUrl ?? undefined,
       imageUrls: entity.imageUrls ?? undefined,
       tokenUsage: entity.tokenUsage ?? undefined,
+      inputTokenUsage: entity.inputTokenUsage ?? undefined,
+      outputTokenUsage: entity.outputTokenUsage ?? undefined,
       errorMessage: entity.errorMessage ?? undefined,
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
@@ -422,6 +428,8 @@ export class ImageGenerationService {
       imageUrl: string | null;
       imageUrls: string[] | null;
       tokenUsage: number | null;
+      inputTokenUsage: number | null;
+      outputTokenUsage: number | null;
       errorMessage: string | null;
       updatedAt: Date;
     }>,

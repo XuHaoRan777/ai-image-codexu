@@ -67,6 +67,8 @@ export type GeneratedImage = {
 export type ImageProviderResult = {
   images: GeneratedImage[];
   tokenUsage?: number;
+  inputTokenUsage?: number;
+  outputTokenUsage?: number;
 };
 
 type OpenAiExtractedImage = GeneratedImage | string;
@@ -892,7 +894,7 @@ async function extractConfiguredHttpResult(
 
   return {
     images,
-    tokenUsage,
+    ...tokenUsage,
   };
 }
 
@@ -963,8 +965,30 @@ function extractConfiguredTokenUsage(
   payload: unknown,
   responseConfig: ImageProviderHttpResponse,
 ) {
-  const path = responseConfig.usage?.totalTokensPath;
+  const usage = responseConfig.usage;
+  const tokenUsage = extractIntegerByPath(payload, usage?.totalTokensPath);
+  const inputTokenUsage = extractIntegerByPath(
+    payload,
+    usage?.inputTokensPath,
+  );
+  const outputTokenUsage = extractIntegerByPath(
+    payload,
+    usage?.outputTokensPath,
+  );
+  const computedTokenUsage =
+    tokenUsage ??
+    (inputTokenUsage !== undefined && outputTokenUsage !== undefined
+      ? inputTokenUsage + outputTokenUsage
+      : undefined);
 
+  return {
+    tokenUsage: computedTokenUsage,
+    inputTokenUsage,
+    outputTokenUsage,
+  };
+}
+
+function extractIntegerByPath(payload: unknown, path?: string) {
   if (!path) {
     return undefined;
   }

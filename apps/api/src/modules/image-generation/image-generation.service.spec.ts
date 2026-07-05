@@ -34,6 +34,8 @@ describe('ImageGenerationService', () => {
           },
         ],
         tokenUsage: 42,
+        inputTokenUsage: 17,
+        outputTokenUsage: 25,
       })),
     } as unknown as ImageProviderDispatcher;
     promptOptimizerService = {
@@ -231,12 +233,16 @@ describe('ImageGenerationService', () => {
     expect(updated?.status).toBe('succeeded');
     expect(updated?.imageUrl).toBe(`/api/images/generated/${job.id}-1.png`);
     expect(updated?.tokenUsage).toBe(42);
+    expect(updated?.inputTokenUsage).toBe(17);
+    expect(updated?.outputTokenUsage).toBe(25);
     await expect(service.listImageJobs()).resolves.toEqual([
       expect.objectContaining({
         id: job.id,
         status: 'succeeded',
         imageUrl: `/api/images/generated/${job.id}-1.png`,
         tokenUsage: 42,
+        inputTokenUsage: 17,
+        outputTokenUsage: 25,
       }),
     ]);
     expect(dispatcher.generateConfiguredHttp).toHaveBeenCalledWith(
@@ -331,6 +337,8 @@ describe('ImageGenerationService', () => {
         '/api/images/generated/job-delete-2.png',
       ],
       tokenUsage: 42,
+      inputTokenUsage: 17,
+      outputTokenUsage: 25,
       errorMessage: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -373,6 +381,8 @@ function createHttpConfig(): ImageProviderHttpConfig {
       },
       usage: {
         totalTokensPath: 'usage.total_tokens',
+        inputTokensPath: 'usage.prompt_tokens',
+        outputTokensPath: 'usage.completion_tokens',
       },
     },
   };
