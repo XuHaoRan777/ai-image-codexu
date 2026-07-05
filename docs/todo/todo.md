@@ -4,6 +4,7 @@
 
 - [x] 2026-07-03 配置页新增生图模型 AI 配置生成：在模型 Dialog 增加 AI 配置页签，支持提交文档地址/文档信息给辅助模型生成 `configurable-http` 配置并未启用落库；后端新增启用时 API key 可用性检查。
 - [x] 2026-07-04 强化生图模型 AI 配置生成提示词：详细约束基础生图参数、OpenAI/Google 缺省补齐策略、参考图配置、extra、response 和 polling 规则，避免只生成可落库但不可用的空壳配置。
+- [x] 2026-07-04 调整历史页展示：取消展示 provider 来源类型，创建时间改为年月日时分格式。
 - [x] 2026-07-02 重做生图 provider 为 `configurable-http`：生图模型配置改为 HTTP 请求模板 JSON，支持请求头/请求体模板、业务参数 bindings、参考图注入、同步/轮询响应提取、token 消耗落库和预设模板，旧模型配置允许手动重建。
 - [x] 2026-07-02 调整生图 HTTP 模板配置页：移除第三方快捷填充，只保留 OpenAI / Google 官方结构模板，并将编辑区拆成请求头、请求体、返回格式三段。
 - [x] 2026-07-03 调整生图 HTTP 请求体配置为“项目字段参数配置”：`request.body` 以 `prompt/aspectRatio/resolution/quantity/referenceImages/extra` 为第一层 key，前端按配置 options/maxCount 展示生图参数，后端在发送前组装最终请求体并保留旧 bindings 短期兼容。

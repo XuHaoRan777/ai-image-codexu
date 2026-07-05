@@ -16,9 +16,7 @@ import {
 import {
   formatAspectRatioLabel,
   formatResolutionLabel,
-  formatShortTime,
   getImageJobUrls,
-  providerTypeLabels,
   statusLabels,
   statusToneClassNames,
 } from "@/lib/image-ui"
@@ -100,7 +98,7 @@ export function HistoryPage({
                             {job.configName}
                           </p>
                           <p className="mt-1 truncate text-xs text-muted-foreground">
-                            {providerTypeLabels[job.providerType]}
+                            {formatHistoryTime(job.createdAt)}
                           </p>
                           <div className="mt-3">
                             <StatusBadge status={job.status} />
@@ -146,7 +144,7 @@ export function HistoryPage({
               <DialogHeader>
                 <DialogTitle>历史详情</DialogTitle>
                 <DialogDescription>
-                  {formatShortTime(selectedHistoryJob.createdAt)} ·{" "}
+                  {formatHistoryTime(selectedHistoryJob.createdAt)} ·{" "}
                   {selectedHistoryJob.configName}
                 </DialogDescription>
               </DialogHeader>
@@ -222,10 +220,6 @@ export function HistoryPage({
                     label="模型配置"
                     value={selectedHistoryJob.configName}
                   />
-                  <HistoryMeta
-                    label="来源"
-                    value={providerTypeLabels[selectedHistoryJob.providerType]}
-                  />
                   {/* 模型名不再单独展示:配置名已由上方「模型配置」承担,且 Google 模式下模型名为空 */}
                   <HistoryMeta
                     label="尺寸"
@@ -249,7 +243,7 @@ export function HistoryPage({
                   ) : null}
                   <HistoryMeta
                     label="创建时间"
-                    value={formatShortTime(selectedHistoryJob.createdAt)}
+                    value={formatHistoryTime(selectedHistoryJob.createdAt)}
                   />
                   <HistoryMeta
                     label="状态"
@@ -300,4 +294,20 @@ function HistoryMeta({ label, value }: { label: string; value: string }) {
       <p className="mt-1 truncate text-foreground">{value}</p>
     </div>
   )
+}
+
+function formatHistoryTime(value: string) {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "刚刚"
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
 }
