@@ -754,88 +754,88 @@ function App() {
     <>
       <GlobalToast />
       <main className="min-h-dvh overflow-x-hidden bg-background text-foreground lg:h-dvh lg:overflow-hidden">
-      <div className="app-shell grid min-h-dvh grid-cols-1 lg:h-dvh lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="motion-panel z-10 border-b border-sidebar-border/70 bg-sidebar/88 px-4 py-4 backdrop-blur-xl lg:h-dvh lg:border-r lg:border-b-0 lg:px-5 lg:py-6">
-          <div className="motion-pop flex items-center gap-3">
-            <div className="brand-mark">
-              <Brush className="size-5" />
+        <div className="app-shell grid min-h-dvh grid-cols-1 lg:h-dvh lg:grid-cols-[248px_minmax(0,1fr)]">
+          <aside className="app-sidebar motion-panel z-20 border-b border-sidebar-border bg-sidebar px-3 py-3 lg:h-dvh lg:border-r lg:border-b-0 lg:px-4 lg:py-5">
+            <div className="motion-pop flex min-w-0 items-center gap-3 px-1 lg:px-0">
+              <div className="brand-mark">
+                <Brush className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate font-mono text-sm font-semibold leading-tight lg:text-base">
+                  AI Image Codexu
+                </h1>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate font-mono text-base font-semibold leading-tight">
-                AI Image Codexu
-              </h1>
+
+            <nav className="app-nav motion-stagger mt-3 grid grid-cols-4 gap-1.5 lg:mt-7 lg:grid-cols-1 lg:gap-1" aria-label="主导航">
+              <NavButton
+                active={view === "generate"}
+                href={viewHashes.generate}
+                icon={ImagePlus}
+                label="生图"
+                tone="green"
+                onClick={() => {
+                  navigateToView("generate")
+                  void refreshConfigs().catch((error: Error) =>
+                    toast.error(error.message),
+                  )
+                }}
+              />
+              <NavButton
+                active={view === "history"}
+                href={viewHashes.history}
+                icon={History}
+                label="历史"
+                tone="cyan"
+                onClick={() => {
+                  navigateToView("history")
+                  void refreshHistoryJobs().catch((error: Error) =>
+                    toast.error(error.message),
+                  )
+                }}
+              />
+              <NavButton
+                active={view === "recognize"}
+                href={viewHashes.recognize}
+                icon={Eye}
+                label="识图"
+                tone="cyan"
+                onClick={() => navigateToView("recognize")}
+              />
+              <NavButton
+                active={view === "settings"}
+                href={viewHashes.settings}
+                icon={Settings}
+                label="配置"
+                tone="amber"
+                onClick={() => navigateToView("settings")}
+              />
+            </nav>
+
+            <Separator className="my-6 hidden bg-sidebar-border lg:block" />
+
+            <div className="motion-stagger hidden gap-2 text-sm lg:grid">
+              <SideMetric
+                icon={Layers3}
+                label="模型配置"
+                value={`${enabledConfigs.length}/${imageConfigs.length}`}
+                caption="启用 / 全部"
+              />
+              <SideMetric
+                icon={Bot}
+                label="提示词辅助"
+                value={assistantEnabled ? "在线" : "关闭"}
+                caption={assistantEnabled ? assistantForm.mode : "直传原提示词"}
+                tone={assistantEnabled ? "success" : "muted"}
+              />
             </div>
-          </div>
+          </aside>
 
-          <nav className="motion-stagger mt-6 grid gap-2" aria-label="主导航">
-            <NavButton
-              active={view === "generate"}
-              href={viewHashes.generate}
-              icon={ImagePlus}
-              label="生图"
-              tone="green"
-              onClick={() => {
-                navigateToView("generate")
-                void refreshConfigs().catch((error: Error) =>
-                  toast.error(error.message),
-                )
-              }}
-            />
-            <NavButton
-              active={view === "history"}
-              href={viewHashes.history}
-              icon={History}
-              label="历史"
-              tone="cyan"
-              onClick={() => {
-                navigateToView("history")
-                void refreshHistoryJobs().catch((error: Error) =>
-                  toast.error(error.message),
-                )
-              }}
-            />
-            <NavButton
-              active={view === "recognize"}
-              href={viewHashes.recognize}
-              icon={Eye}
-              label="识图"
-              tone="cyan"
-              onClick={() => navigateToView("recognize")}
-            />
-            <NavButton
-              active={view === "settings"}
-              href={viewHashes.settings}
-              icon={Settings}
-              label="配置"
-              tone="amber"
-              onClick={() => navigateToView("settings")}
-            />
-          </nav>
-
-          <Separator className="my-6 bg-sidebar-border/70" />
-
-          <div className="motion-stagger grid gap-3 text-sm">
-            <SideMetric
-              icon={Layers3}
-              label="模型配置"
-              value={`${enabledConfigs.length}/${imageConfigs.length}`}
-              caption="启用 / 全部"
-            />
-            <SideMetric
-              icon={Bot}
-              label="提示词辅助"
-              value={assistantEnabled ? "在线" : "关闭"}
-              caption={assistantEnabled ? assistantForm.mode : "直传原提示词"}
-              tone={assistantEnabled ? "success" : "muted"}
-            />
-          </div>
-        </aside>
-
-        <section className="z-10 min-w-0 p-3 sm:p-4 lg:h-dvh lg:overflow-hidden">
-          <div
-            key={view}
-            className="motion-page flex w-full max-w-none flex-col gap-3 lg:h-full lg:min-h-0"
-          >
+          <section className="page-content z-10 min-w-0 p-3 sm:p-4 lg:h-dvh lg:overflow-hidden lg:p-5">
+            <div
+              key={view}
+              className="motion-page flex w-full max-w-none flex-col gap-3 lg:h-full lg:min-h-0"
+            >
             {view === "generate" ? (
               <GeneratePage
                 aspectRatio={aspectRatio}
@@ -902,10 +902,10 @@ function App() {
                 onToggleConfigEnabled={handleToggleConfigEnabled}
               />
             )}
-          </div>
-        </section>
-      </div>
-    </main>
+            </div>
+          </section>
+        </div>
+      </main>
     </>
   )
 }
@@ -929,18 +929,13 @@ function NavButton({
     <Button
       asChild
       variant={active ? "secondary" : "ghost"}
+      data-active={active}
       className={cn(
-        "h-11 justify-start rounded-lg px-3 text-sm",
-        "motion-hover-lift",
-        active &&
-          tone === "green" &&
-          "border border-emerald-300/20 bg-emerald-300/10 text-emerald-50 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.08)]",
-        active &&
-          tone === "cyan" &&
-          "border border-cyan-300/20 bg-cyan-300/10 text-cyan-50 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.08)]",
-        active &&
-          tone === "amber" &&
-          "border border-amber-300/20 bg-amber-300/10 text-amber-50 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.08)]",
+        "app-nav-item h-11 min-w-0 flex-col justify-center gap-1 rounded-lg px-2 text-xs lg:flex-row lg:justify-start lg:gap-2.5 lg:px-3 lg:text-sm",
+        active && "text-foreground",
+        tone === "amber" && "[&_svg]:text-amber-200",
+        tone === "cyan" && "[&_svg]:text-cyan-200",
+        tone === "green" && "[&_svg]:text-emerald-200",
       )}
     >
       <a
@@ -972,7 +967,7 @@ function SideMetric({
   value: string
 }) {
   return (
-    <div className="motion-hover-lift rounded-lg border border-sidebar-border/70 bg-background/35 p-3">
+    <div className="side-metric rounded-lg border border-sidebar-border bg-background/25 p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Icon

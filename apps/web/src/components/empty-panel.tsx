@@ -10,8 +10,8 @@ export function EmptyPanel({
   title: string
 }) {
   return (
-    <div className="grid justify-items-center rounded-lg border border-dashed border-border/70 px-5 py-10 text-center">
-      <div className="flex size-11 items-center justify-center rounded-lg border border-border/70 text-muted-foreground">
+    <div className="grid min-h-48 place-content-center justify-items-center rounded-lg border border-dashed border-border/70 px-5 py-10 text-center">
+      <div className="flex size-11 items-center justify-center rounded-lg border border-border/80 bg-background/25 text-muted-foreground">
         <Icon className="size-5" />
       </div>
       <p className="mt-3 text-sm font-medium">{title}</p>

@@ -55,7 +55,7 @@ export function HistoryPage({
     <>
       <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 lg:flex-1">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-base">
             <History className="size-5 text-cyan-200" />
             历史列表
           </CardTitle>
@@ -70,7 +70,7 @@ export function HistoryPage({
                   <div
                     key={job.id}
                     className={cn(
-                      "motion-hover-lift group/history grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border border-border/70 bg-background/45 p-2 hover:border-emerald-300/35 hover:bg-emerald-300/10",
+                      "work-item motion-hover-lift group/history grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg p-2",
                       selectedHistoryJobId === job.id &&
                         "border-emerald-300/45 bg-emerald-300/15",
                     )}

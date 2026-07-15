@@ -34,14 +34,14 @@ const toastClassNames: Record<ToastVariant, string> = {
   success: "border-emerald-300/35 bg-emerald-300/12 text-emerald-50",
   warning: "border-amber-300/40 bg-amber-300/12 text-amber-50",
   error: "border-red-300/45 bg-red-400/12 text-red-50",
-  info: "border-slate-300/35 bg-slate-300/12 text-slate-50",
+  info: "border-border bg-card/95 text-foreground",
 }
 
 const toastIconClassNames: Record<ToastVariant, string> = {
   success: "text-emerald-200",
   warning: "text-amber-200",
   error: "text-red-200",
-  info: "text-slate-200",
+  info: "text-muted-foreground",
 }
 
 export function GlobalToast() {
@@ -85,7 +85,7 @@ function ToastCard({
       role={urgent ? "alert" : "status"}
       aria-live={urgent ? "assertive" : "polite"}
       className={cn(
-        "toast-card pointer-events-auto flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm shadow-[0_18px_55px_rgba(0,0,0,0.28)] backdrop-blur-xl",
+        "toast-card pointer-events-auto flex min-h-12 items-center gap-3 rounded-lg border px-3 py-2 text-sm shadow-[0_16px_42px_rgba(0,0,0,0.3)] backdrop-blur-xl",
         item.leaving ? "toast-card-exit" : "toast-card-enter",
         toastClassNames[item.variant],
       )}
@@ -97,7 +97,7 @@ function ToastCard({
       <p className="min-w-0 flex-1 leading-5">{item.message}</p>
       <button
         type="button"
-        className="flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="flex size-9 shrink-0 items-center justify-center rounded-md opacity-70 transition-[opacity,background-color] hover:bg-white/8 hover:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/35"
         onClick={onDismiss}
         aria-label="关闭提示"
       >

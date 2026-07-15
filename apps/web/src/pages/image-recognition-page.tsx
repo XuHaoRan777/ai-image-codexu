@@ -269,10 +269,10 @@ export function ImageRecognitionPage({
   }
 
   return (
-    <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)]">
+    <div className="motion-stagger grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)] xl:gap-4">
       <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-base">
             <ImagePlus className="size-5 text-cyan-200" />
             识图
           </CardTitle>
@@ -377,7 +377,7 @@ export function ImageRecognitionPage({
             </div>
             <Textarea
               id="recognition-prompt"
-              className="min-h-32 resize-y rounded-lg border-border/80 bg-background/55 px-4 py-3 text-sm leading-6 shadow-inner shadow-black/20 placeholder:text-muted-foreground/70"
+              className="min-h-32 resize-y px-4 py-3 text-sm leading-6"
               placeholder="例如：这张图片里有什么？描述图片中的场景。"
               value={prompt}
               onChange={(event) => handlePromptChange(event.target.value)}
@@ -408,7 +408,7 @@ export function ImageRecognitionPage({
           </section>
 
           <Button
-            className="h-11 bg-primary text-primary-foreground shadow-[0_0_24px_rgba(52,211,153,0.18)] hover:bg-primary/90 disabled:border disabled:border-border/70 disabled:bg-muted/35 disabled:text-muted-foreground disabled:shadow-none disabled:opacity-100 disabled:hover:bg-muted/35"
+            className="h-11 bg-primary text-primary-foreground hover:bg-primary/90 disabled:border disabled:border-border/70 disabled:bg-muted/35 disabled:text-muted-foreground disabled:shadow-none disabled:opacity-100 disabled:hover:bg-muted/35"
             disabled={analyzing || !assistantReady || !image || !prompt.trim()}
             onClick={handleAnalyze}
           >
@@ -424,7 +424,7 @@ export function ImageRecognitionPage({
 
       <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center justify-between gap-3 text-lg">
+          <CardTitle className="flex items-center justify-between gap-3 text-base">
             <span className="flex min-w-0 items-center gap-2">
               <FileText className="size-5 text-amber-200" />
               分析结果
@@ -447,7 +447,7 @@ export function ImageRecognitionPage({
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-1 lg:min-h-0 lg:flex-1">
-          <div className="motion-pop flex min-h-[420px] rounded-lg border border-border/70 bg-background/35 lg:h-full lg:min-h-0">
+          <div className="canvas-surface motion-pop flex min-h-[420px] rounded-lg lg:h-full lg:min-h-0">
             {analyzing ? (
               <div className="m-auto grid justify-items-center gap-3 text-center text-muted-foreground">
                 <Loader2 className="size-9 animate-spin text-cyan-100" />

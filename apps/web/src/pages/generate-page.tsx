@@ -328,10 +328,10 @@ export function GeneratePage({
   ])
 
   return (
-    <div className="motion-stagger grid min-w-0 gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)]">
+    <div className="motion-stagger grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(340px,3.5fr)_minmax(0,6.5fr)] xl:gap-4">
       <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-base">
             <ImagePlus className="size-5 text-emerald-200" />
             创作
           </CardTitle>
@@ -421,7 +421,7 @@ export function GeneratePage({
             <div className="flex items-center justify-between gap-3">
               <FieldLabel id="prompt">提示词</FieldLabel>
               <Button
-                className="h-9 border-emerald-300/25 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/15"
+                className="h-10 border-emerald-300/25 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/15"
                 size="sm"
                 variant="outline"
                 disabled={optimizingPrompt || generationControlsDisabled}
@@ -437,14 +437,14 @@ export function GeneratePage({
             </div>
             <Textarea
               id="prompt"
-              className="min-h-[240px] resize-y rounded-lg border-border/80 bg-background/55 px-4 py-3 text-base leading-7 shadow-inner shadow-black/20 placeholder:text-muted-foreground/70 focus-visible:ring-emerald-300/30 md:text-sm lg:h-[240px] lg:min-h-0"
+              className="min-h-[240px] resize-y px-4 py-3 text-base leading-7 focus-visible:ring-emerald-300/30 md:text-sm lg:h-[240px] lg:min-h-0"
               placeholder="描述你想生成的画面、主体、风格、构图、光线和限制条件。"
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
             />
           </div>
 
-          <div className="motion-pop grid gap-3 rounded-lg border border-border/70 bg-background/45 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="control-surface motion-pop grid gap-3 rounded-lg p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <Select
               value={selectedConfigId}
               onValueChange={onSelectedConfigChange}
@@ -462,7 +462,7 @@ export function GeneratePage({
             </Select>
             <Button
               className={cn(
-                "h-10 w-full bg-primary text-primary-foreground shadow-[0_0_24px_rgba(52,211,153,0.18)] hover:bg-primary/90 sm:w-auto sm:shrink-0",
+                "h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto sm:shrink-0",
                 generationControlsDisabled &&
                   !creatingJob &&
                   "bg-muted text-muted-foreground shadow-none hover:bg-muted disabled:opacity-60",
@@ -483,7 +483,7 @@ export function GeneratePage({
 
       <Card className="motion-panel surface-panel w-full min-w-0 rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-base">
             <ImagePlus className="size-5 text-amber-200" />
             任务预览
           </CardTitle>
@@ -592,7 +592,7 @@ function JobPreviewCanvas({
         </div>
 
         {imageUrls.length > 1 ? (
-          <div className="motion-pop flex min-h-16 gap-2 overflow-x-auto rounded-lg border border-border/70 bg-background/35 p-2">
+          <div className="control-surface motion-pop flex min-h-16 gap-2 overflow-x-auto rounded-lg p-2">
             {imageUrls.map((url, index) => (
               <button
                 key={`${url}-${index}`}
@@ -921,19 +921,19 @@ function FieldLabel({
 function getPreviewFrameClass(aspectRatio: AspectRatio) {
   switch (aspectRatio) {
     case "auto":
-      return "aspect-square max-w-[640px]"
+      return "preview-frame-square aspect-square"
     case "4:3":
-      return "aspect-[4/3] max-w-[760px]"
+      return "preview-frame-landscape aspect-[4/3]"
     case "3:4":
-      return "aspect-[3/4] max-w-[480px]"
+      return "preview-frame-portrait aspect-[3/4]"
     case "16:9":
-      return "aspect-video max-w-[860px]"
+      return "preview-frame-landscape aspect-video"
     case "9:16":
-      return "aspect-[9/16] max-w-[360px]"
+      return "preview-frame-tall aspect-[9/16]"
     case "1:1":
-      return "aspect-square max-w-[640px]"
+      return "preview-frame-square aspect-square"
     default:
-      return "aspect-square max-w-[640px]"
+      return "preview-frame-square aspect-square"
   }
 }
 

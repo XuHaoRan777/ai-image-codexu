@@ -143,10 +143,10 @@ export function SettingsPage({
     editingConfigId && configFormTab === "ai" ? "base" : configFormTab
 
   return (
-    <div className="motion-stagger grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+    <div className="motion-stagger grid gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:gap-4">
       <Card className="motion-panel surface-panel rounded-lg lg:min-h-0">
         <CardHeader className="border-b border-border/70 pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-base">
             <Layers3 className="size-5 text-cyan-200" />
             模型库
           </CardTitle>
@@ -172,11 +172,11 @@ export function SettingsPage({
                   <div
                     key={config.id}
                     className={cn(
-                      "group rounded-lg border p-3 transition-colors",
+                      "work-item group rounded-lg p-3 transition-colors",
                       "motion-hover-lift",
                       config.enabled
                         ? "border-emerald-300/25 bg-emerald-300/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                        : "border-border/65 bg-background/35",
+                        : "border-border/65",
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -1545,7 +1545,7 @@ function AssistantConfigCard({
   return (
     <Card className="motion-panel surface-panel rounded-lg lg:min-h-0 xl:self-start">
       <CardHeader className="border-b border-border/70 pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
+        <CardTitle className="flex items-center gap-2 text-base">
           <Bot className="size-5 text-amber-200" />
           辅助模型
         </CardTitle>
